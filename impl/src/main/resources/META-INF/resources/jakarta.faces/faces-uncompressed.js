@@ -26,6 +26,112 @@
 if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
       (faces.implversion && faces.implversion >= 15))) {
 
+    // --- JS Lang --------------------------------------------------------------------
+    const UDEF = 'undefined';
+    const EMPTY = "";
+    const SPACE = " ";
+    const FORM = "form";
+    const isNull = (value) => (typeof value === UDEF || (typeof value === "object" && !value));
+    const isNotNull = (value) => !isNull(value);
+
+    /**
+     * Get the head from document.
+     * @ignore
+     */
+    const getHead = () => {
+        return document.head || document.getElementsByTagName('head')[0] || document.documentElement;
+    };
+
+    /**
+     * Get the nonce from faces.js script for CSP support.
+     * @ignore
+     */
+    const getNonce = (() => {
+        const loadTimeNonce = document.currentScript ? document.currentScript.nonce : undefined;
+        return () => {
+            if (loadTimeNonce) {
+                return loadTimeNonce;
+            }
+            const thisScript = document.querySelector("script[src*='jakarta.faces.resource/faces.js']");
+            return isNotNull(thisScript) ? thisScript.nonce : undefined;
+        };
+    })();
+
+
+    /**
+     * Execute script with nonce for CSP support.
+     * @ignore
+     */
+    const executeScriptWithNonce = (head, script, nonce) => {
+        const scriptNode = document.createElement('script'); // create script node
+        scriptNode.nonce = nonce;
+        scriptNode.text = script; // add the code to the script node
+        head.appendChild(scriptNode); // add it to the head
+        head.removeChild(scriptNode); // then remove it
+    };
+
+    // --- Faces constants ------------------------------------------------------------
+    const VIEW_STATE_PARAM = "jakarta.faces.ViewState";
+    const CLIENT_WINDOW_PARAM = "jakarta.faces.ClientWindow";
+    const ALWAYS_EXECUTE_IDS = [ VIEW_STATE_PARAM , CLIENT_WINDOW_PARAM ];
+    const ENCODED_URL_PARAM = "jakarta.faces.encodedURL";
+
+    /**
+     * experimental: do partial submit during ajax request
+     * todo: add a config parameter for this, where?
+     */
+    const PARTIAL_SUBMIT_ENABLED = true;
+
+    /**
+     * Check if a String or an Array contains a value
+     * @ignore
+     */
+    const contains = function(stringOrArray,value) { return stringOrArray.indexOf(value) !== -1; }
+
+    /**
+     * Find instance of passed String via getElementById.
+     * @ignore
+     */
+    const getElemById = function getElemById( elementOrId ) {
+        return typeof elementOrId == 'string' ? document.getElementById(elementOrId) : elementOrId;
+    };
+
+    /**
+     * get dom element or document child by name attribute
+     * @ignore
+     */
+    const getElementByName = function(element, name) {
+        return element.querySelector("[name='"+name+"']");
+    }
+
+    /**
+     * get the input element inside a form identified by name attribute
+     * @ignore
+     */
+    const getFormInputElementByName = function(form, inputElementName) {
+        return inputElementName in form ? form[inputElementName] : getElementByName(form,inputElementName);
+    }
+
+    /**
+     * append a new pair of parameter=value to a query string
+     * @ignore
+     */
+    const appendToQueryString = function appendToQueryString( queryString , name, value) {
+        return queryString + ( (queryString.length > 0 ? "&" : EMPTY) + encodeURIComponent(name) + "=" + encodeURIComponent(value) );
+    };
+
+    /**
+     * return true if one of the dom elements contains
+     * a child with the attribute name equals to the passed name
+     * @param elements an array of DOM elements
+     * @param name the value of the attribute name
+     * @returns {boolean} true if at least one of the domElements contains a child with the attribute name equals to the passed param name
+     * @ignore
+     */
+    const containsNamedChild = function (elements,name) {
+        return elements.some( elem => !!getElementByName(elem,name) );
+    }
+
     /**
      * <span class="changed_modified_2_2">The top level global namespace
      * for Jakarta Faces functionality.</span>
@@ -156,7 +262,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             }
             throw new Error('Could not create an XHR object.');
         };
-        
+
         /**
          * Used for iframe based communication (instead of XHR).
          * @ignore
@@ -177,22 +283,22 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             this.url = null;
             this.requestParams = null;
         };
-        
+
         /**
          * Extends FrameTransport an adds method functionality.
          * @ignore
          */
         FrameTransport.prototype = {
-            
+
             /**
              *@ignore
              */
             setRequestHeader:function(key, value) {
                 if (typeof(value) !== "undefined") {
-                    this.requestHeader[key] = value;  
+                    this.requestHeader[key] = value;
                 }
             },
-            
+
             /**
              * Creates the hidden iframe and sets readystate.
              * @ignore
@@ -206,7 +312,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                     this.frame.parentNode.removeChild(this.frame);
                     this.frame = null;
                 }
-                if (!this.frame) {  
+                if (!this.frame) {
                     if ((!isIE() && !isIE9Plus())) {
                         this.frame = document.createElement('iframe');
                         this.frame.src = "about:blank";
@@ -214,7 +320,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                         this.frame.name = this.FRAME_ID;
                         this.frame.type = "content";
                         this.frame.collapsed = "true";
-                        this.frame.style = "visibility:hidden";   
+                        this.frame.style = "visibility:hidden";
                         this.frame.width = "0";
                         this.frame.height = "0";
                         this.frame.style = "border:0";
@@ -239,10 +345,10 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 this.partial.setAttribute("name", this.FRAME_PARTIAL_ID);
                 this.partial.setAttribute("value", "partial/ajax");
                 this.context.form.appendChild(this.partial);
-  
-                this.readyState = 1;                         
+
+                this.readyState = 1;
             },
-            
+
             /**
              * Sets the form target to iframe, sets up request parameters
              * and submits the form.
@@ -259,7 +365,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 this.readyState = 3;
 
                 this.onreadystatechange(evt);
-                
+
                 var ddata = decodeURIComponent(data);
                 var dataArray = ddata.split("&");
                 var input;
@@ -284,21 +390,21 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 this.requestParams.push(this.FRAME_PARTIAL_ID);
                 this.context.form.submit();
             },
-            
+
             /**
              *@ignore
              */
             abort:function() {
-                this.aborted = true; 
+                this.aborted = true;
             },
-            
+
             /**
              *@ignore
              */
             onreadystatechange:function(evt) {
-                
+
             },
-            
+
             /**
              * Extracts response from iframe document, sets readystate.
              * @ignore
@@ -311,20 +417,20 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 var docBody;
                 try {
                     var evt = {};
-                    iFrameDoc = this.frame.contentWindow.document || 
+                    iFrameDoc = this.frame.contentWindow.document ||
                         this.frame.contentDocument || this.frame.document;
                     docBody = iFrameDoc.body || iFrameDoc.documentElement;
                     this.responseText = docBody.innerHTML;
                     this.responseXML = iFrameDoc.XMLDocument || iFrameDoc;
                     this.status = 201;
-                    this.readyState = 4;  
+                    this.readyState = 4;
 
-                    this.onreadystatechange(evt);                
+                    this.onreadystatechange(evt);
                 } finally {
                     this.cleanupReqParams();
-                }               
+                }
             },
-            
+
             /**
              *@ignore
              */
@@ -337,15 +443,15 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                         }
                         if (elements[j].name === this.requestParams[i]) {
                             var node = this.context.form.removeChild(elements[j]);
-                            node = null;                           
+                            node = null;
                             break;
                         }
-                    }   
+                    }
                 }
             }
         };
-        
-       
+
+
         /**
          *Utility function that binds function to scope.
          *@ignore
@@ -370,11 +476,11 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                         returnVal = true;
                         break;
                     }
-                }    
+                }
             }
             return returnVal;
         };
-        
+
         /**
          * Find instance of passed String via getElementById
          * @ignore
@@ -422,7 +528,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
         /**
          * Get an array of all Faces form elements which need their view state to be updated.
          * This covers at least the form that submitted the request and any form that is covered in the render target list.
-         * 
+         *
          * @param context An object containing the request context, including the following properties:
          * the source element, per call onerror callback function, per call onevent callback function, the render
          * instructions, the submitting form ID, the naming container ID and naming container prefix.
@@ -432,18 +538,18 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
 
             var add = function(element) {
                 if (element) {
-                    if (element.nodeName 
-                        && element.nodeName.toLowerCase() == "form" 
-                        && element.method == "post" 
-                        && element.id 
-                        && element.elements 
+                    if (element.nodeName
+                        && element.nodeName.toLowerCase() == "form"
+                        && element.method == "post"
+                        && element.id
+                        && element.elements
                         && element.id.indexOf(context.namingContainerPrefix) == 0)
                     {
                         formsToUpdate.push(element);
                     }
                     else {
                         var forms = element.getElementsByTagName("form");
-    
+
                         for (var i = 0; i < forms.length; i++) {
                             add(forms[i]);
                         }
@@ -609,8 +715,21 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             return scripts;
         };
 
+        // Regex to find all scripts in a string
+        const SCRIPT_TAG_REGEX = /<script[^>]*>([\S\s]*?)<\/script>/igm;
+
+        // Regex to find type attribute
+        const TAG_ATTRIBUTE_TYPE_REGEX = /type="([\S]*?)"/im;
+
+
         var removeScripts = function removeScripts(str) {
-            return str.replace(/<script[^>]*type="text\/javascript"[^>]*>([\S\s]*?)<\/script>/igm,"");
+            return str.replace(SCRIPT_TAG_REGEX, function(match, content) {
+                const type = match.match(TAG_ATTRIBUTE_TYPE_REGEX);
+                if (!!type && type[1] !== "text/javascript") {
+                    return match; // keep non-text/javascript scripts
+                }
+                return EMPTY;
+            });
         };
 
         /**
@@ -635,7 +754,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 }
             }
 
-            var head = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
+            const head = getHead();
             runScript(head, loadedScriptUrls, scripts, 0);
         };
 
@@ -661,6 +780,8 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             var src = scriptStr[1].match(findsrc);
             var scriptLoadedViaUrl = false;
 
+            const nonce = getNonce();
+
             if (!!src && src[1]) {
                 // if this is a file, load it
                 var url = unescapeHTML(src[1]);
@@ -673,7 +794,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                     parserElement.innerHTML = scriptStr[0];
                     cloneAttributes(scriptNode, parserElement.firstChild);
                     deleteNode(parserElement);
-                    scriptNode.type = 'text/javascript';
+                    scriptNode.nonce = nonce;
                     scriptNode.src = url; // add the src to the script node
                     scriptNode.onload = scriptNode.onreadystatechange = function(_, abort) {
                         if (abort || !scriptNode.readyState || /loaded|complete/.test(scriptNode.readyState)) {
@@ -682,7 +803,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                             runScript(head, loadedScriptUrls, scripts, index + 1); // Run next script.
                         }
                     };
-                    head.insertBefore(scriptNode, null); // add it to end of the head (and don't remove it)
+                    head.appendChild(scriptNode); // add it to end of the head (and don't remove it)
                     scriptLoadedViaUrl = true;
                 }
             } else if (!!scriptStr && scriptStr[2]) {
@@ -690,12 +811,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 var script = scriptStr[2].replace(stripStart,"");
 
                 if (!!script) {
-                    // create script node
-                    var scriptNode = document.createElement('script');
-                    scriptNode.type = 'text/javascript';
-                    scriptNode.text = script; // add the code to the script node
-                    head.appendChild(scriptNode); // add it to the head
-                    head.removeChild(scriptNode); // then remove it
+                    executeScriptWithNonce(head, script, nonce);
                 }
             }
 
@@ -718,10 +834,8 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             var findtype = /type="([\S]*?)"/im;
             var findhref = /href="([\S]*?)"/im;
 
-            var stylesheets = [];
-            var loadedStylesheetUrls = null;
-            var head = document.head || document.getElementsByTagName('head')[0] || document.documentElement;
-            var parserElement = null;
+            // the head of the document, note that document.head do not always work
+            const head = getHead();
 
             var initialnodes = str.match(findlinks);
             while (!!initialnodes && initialnodes.length > 0) {
@@ -799,7 +913,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 }
             }
 
-            replaceNode(temp, element);            
+            replaceNode(temp, element);
             cloneAttributes(temp, element);
             runScripts(scripts);
 
@@ -1180,12 +1294,12 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 var propertyName = propertyNames[iIndex];
                 var attributeName = propertyToAttribute(propertyName);
                 if (sourceAttributeDetector(attributeName)) {
-                
-                    //With IE 7 (quirks or standard mode) and IE 8/9 (quirks mode only), 
+
+                    //With IE 7 (quirks or standard mode) and IE 8/9 (quirks mode only),
                     //you cannot get the attribute using 'class'. You must use 'className'
-                    //which is the same value you use to get the indexed property. The only 
+                    //which is the same value you use to get the indexed property. The only
                     //reliable way to detect this (without trying to evaluate the browser
-                    //mode and version) is to compare the two return values using 'className' 
+                    //mode and version) is to compare the two return values using 'className'
                     //to see if they exactly the same.  If they are, then use the property
                     //name when using getAttribute.
                     if( attributeName == 'class'){
@@ -1361,12 +1475,12 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
         /**
          * Update hidden state fields from the server into the DOM for any Faces forms which need to be updated.
          * This covers at least the form that submitted the request and any form that is covered in the render target list.
-         * 
+         *
          * @param updateElement The update element of partial response holding the state value.
          * @param context An object containing the request context, including the following properties:
          * the source element, per call onerror callback function, per call onevent callback function, the render
          * instructions, the submitting form ID, the naming container ID and naming container prefix.
-         * @param hiddenStateFieldName The hidden state field name, e.g. jakarta.faces.ViewState or jakarta.faces.ClientWindow 
+         * @param hiddenStateFieldName The hidden state field name, e.g. jakarta.faces.ViewState or jakarta.faces.ClientWindow
          */
         var updateHiddenStateFields = function updateHiddenStateFields(updateElement, context, hiddenStateFieldName) {
             var firstChild = updateElement.firstChild;
@@ -1389,7 +1503,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
         /**
          * Find hidden state field for a given form.
          * @param form The form to find hidden state field in.
-         * @param hiddenStateFieldName The hidden state field name, e.g. jakarta.faces.ViewState or jakarta.faces.ClientWindow 
+         * @param hiddenStateFieldName The hidden state field name, e.g. jakarta.faces.ViewState or jakarta.faces.ClientWindow
          * @param namingContainerPrefix The naming container prefix, if any (the view root ID suffixed with separator character).
          * @ignore
          */
@@ -1466,20 +1580,20 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 }
 
                 if (id === "jakarta.faces.ViewRoot" || id === "jakarta.faces.ViewBody" || context.render === "@all") {
-    
+
                     // spec790: If UIViewRoot is currently being updated,
                     // then it means that ajax navigation has taken place.
                     // So, ensure that context.render has correct value for this condition,
                     // because this is not necessarily correctly specified during the request.
                     context.render = "@all";
-    
+
                     var bodyStartEx = new RegExp("< *body[^>]*>", "gi");
                     var bodyEndEx = new RegExp("< */ *body[^>]*>", "gi");
                     var newsrc;
-    
+
                     var docBody = document.getElementsByTagName("body")[0];
                     var bodyStart = bodyStartEx.exec(src);
-    
+
                     if (bodyStart !== null) { // replace body tag
                         // First, try with XML manipulation
                         try {
@@ -1502,9 +1616,9 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                             }
                             // replace body contents with innerHTML - note, script handling happens within function
                             elementReplaceStr(docBody, "body", srcBody);
-    
+
                         }
-    
+
                     } else {  // replace body contents with innerHTML - note, script handling happens within function
                         elementReplaceStr(docBody, "body", src);
                     }
@@ -1512,7 +1626,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                     if (!element) {
                         throw new Error("During update: " + id + " not found");
                     }
-    
+
                     var parent = element.parentNode;
                     // Trim space padding before assigning to innerHTML
                     var html = src.replace(/^\s+/g, '').replace(/\s+$/g, '');
@@ -1527,7 +1641,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                         }
                     }
                     if (isInTable) {
-    
+
                         if (isAutoExec()) {
                             // Create html
                             parserElement.innerHTML = '<table>' + html + '</table>';
@@ -1552,7 +1666,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                         parserElement = document.createElement('div');
                         parserElement.innerHTML = html;
                         newElement = parserElement.firstChild;
-    
+
                         cloneAttributes(element, newElement);
                         deleteNode(parserElement);
                     } else if (html.length > 0) {
@@ -1702,20 +1816,17 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
          * @param element to eval
          * @ignore
          */
-        var doEval = function doEval(element) {
-            var evalText = '';
-            var childNodes = element.childNodes;
-            for (var i = 0; i < childNodes.length; i++) {
-                evalText += childNodes[i].nodeValue;
-            }
-            globalEval(evalText);
+        const doEval = function doEval(element) {
+            const script = element ? element.textContent : undefined;
+            if (script) runScripts([[null, '', script]]);
+            else console.warn('called doEval with no source code');
         };
 
         /**
          * Ajax Request Queue
          * @ignore
          */
-        var Queue = new function Queue() {
+        const Queue = new function Queue() {
 
             // Create the internal queue
             var queue = [];
@@ -1830,11 +1941,11 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             req.fromQueue = false;         // Indicates if the request was taken off the queue before being sent. This prevents the request from entering the queue redundantly.
 
             req.que = Queue;
-            
+
             // Get a transport Handle
             // The transport will be an iframe transport if the form
             // has multipart encoding type.  This is where we could
-            // handle XMLHttpRequest Level2 as well (perhaps 
+            // handle XMLHttpRequest Level2 as well (perhaps
             // something like:  if ('upload' in req.xmlReq)'
             req.xmlReq = getTransport(context);
 
@@ -1846,7 +1957,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * @ignore
              */
             function noop() {}
-            
+
             // Set up request/response state callbacks
             /**
              * @ignore
@@ -1964,7 +2075,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                     req.xmlReq.open(req.method, req.url, req.async);
                     // note that we are including the charset=UTF-8 as part of the content type (even
                     // if encodeURIComponent encodes as UTF-8), because with some
-                    // browsers it will not be set in the request.  Some server implementations need to 
+                    // browsers it will not be set in the request.  Some server implementations need to
                     // determine the character encoding from the request header content type.
                     if (req.method === "POST") {
                         if (typeof req.xmlReq.setRequestHeader !== 'undefined') {
@@ -2063,10 +2174,10 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                     + (data.source ? " [source: " + (data.source.id || data.source) + "]" : "");
 
                 // Example outputs:
-                // - httpError: There was an error communicating with the server, status: 404 (HTTP 404) [source: myButton]                                                                                                                                    
+                // - httpError: There was an error communicating with the server, status: 404 (HTTP 404) [source: myButton]
                 // - serverError: java.lang.NullPointerException fieldName (HTTP 500) [source: myForm]
-                // - emptyResponse: An empty response was received from the server. Check server error logs. [source: myButton]                                                                                                                                
-                    
+                // - emptyResponse: An empty response was received from the server. Check server error logs. [source: myButton]
+
                 if (faces.getProjectStage() === "Development") {
                     alert(errorMessage);
                 } else {
@@ -2213,9 +2324,9 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * <li>If the <code>source</code> argument is a <code>string</code>, find the
              * DOM element for that <code>string</code> identifier.
              * <li>If the DOM element could not be determined, throw an error.</li>
-             * <li class="changed_added_2_3">If the <code>jakarta.faces.ViewState</code> 
+             * <li class="changed_added_2_3">If the <code>jakarta.faces.ViewState</code>
              * element could not be found, throw an error.</li>
-             * <li class="changed_added_2_3">If the ID of the <code>jakarta.faces.ViewState</code> 
+             * <li class="changed_added_2_3">If the ID of the <code>jakarta.faces.ViewState</code>
              * element has a <code>&lt;VIEW_ROOT_CONTAINER_CLIENT_ID&gt;&lt;SEP&gt;</code>
              * prefix, where &lt;SEP&gt; is the currently configured
              * <code>UINamingContainer.getSeparatorChar()</code> and
@@ -2359,10 +2470,10 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * value as the <code>posting URL</code>.  Otherwise, use the <code>action</code>
              * property of the <code>form</code> element as the <code>URL</code>.</li>
 
-             * <li> 
+             * <li>
 
              * <p><span class="changed_modified_2_2">Determine whether
-             * or not the submitting form is using 
+             * or not the submitting form is using
              * <code>multipart/form-data</code> as its
              * <code>enctype</code> attribute.  If not, send the request
              * as an <code>asynchronous POST</code> using the
@@ -2378,7 +2489,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * In this way, the server side processing of the request
              * will be identical whether or the request is multipart or
              * not.</span></p>
-            
+
              * <div class="changed_added_2_2">
 
              * <p>The <code>begin</code>, <code>complete</code>, and
@@ -2389,8 +2500,8 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
 
              * </div></li>
              * </ul>
-             * Form serialization should occur just before the request is sent to minimize 
-             * the amount of time between the creation of the serialized form data and the 
+             * Form serialization should occur just before the request is sent to minimize
+             * the amount of time between the creation of the serialized form data and the
              * sending of the serialized form data (in the case of long requests in the queue).
              * Before the request is sent it must be put into a queue to ensure requests
              * are sent in the same order as when they were initiated.  The request callback function
@@ -2488,7 +2599,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
 
                 var element, form, viewStateElement;   //  Element variables
                 var all, none;
-                
+
                 var context = {};
 
                 if (typeof source === 'undefined' || source === null) {
@@ -2512,7 +2623,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 if (!element.name) {
                     element.name = element.id;
                 }
-                
+
                 context.element = element;
 
                 if (typeof(options) === 'undefined' || options === null) {
@@ -2546,10 +2657,10 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 if (!viewStateElement) {
                     throw new Error("faces.ajax.request: Form has no view state element");
                 }
-                
+
                 context.form = form;
                 context.formId = form.id;
-                
+
                 var viewState = faces.getViewState(form);
 
                 // Set up additional arguments to be used in the request..
@@ -2627,21 +2738,21 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                     delayValue = options.delay;
                 } else  {
                     var converted = parseInt(options.delay);
-                    
+
                     if (!explicitlyDoNotDelay && isNaN(converted)) {
                         throw new Error('invalid value for delay option: ' + options.delay);
                     }
                     delayValue = converted;
                 }
 
-                var checkForTypeFile
+                var checkForTypeFile;
 
                 // check the execute ids to see if any include an input of type "file"
                 context.includesInputFile = false;
                 var ids = options.execute.split(" ");
                 if (ids == "@all") { ids = [ form.id ]; }
                 if (ids) {
-                    for (i = 0; i < ids.length; i++) {
+                    for (var i = 0; i < ids.length; i++) {
                         var elem = document.getElementById(ids[i]);
                         if (elem) {
                             var nodeType = elem.nodeType;
@@ -2724,7 +2835,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
 
             },
             /**
-             * <p><span class="changed_modified_2_2">Receive</span> an Ajax response 
+             * <p><span class="changed_modified_2_2">Receive</span> an Ajax response
              * from the server.
              * <p><b>Usage:</b></p>
              * <pre><code>
@@ -2744,7 +2855,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * <p><i>Update Element Processing</i></p>
              * The <code>update</code> element is used to update a single DOM element.  The
              * "id" attribute of the <code>update</code> element refers to the DOM element that
-             * will be updated.  The contents of the <code>CDATA</code> section is the data that 
+             * will be updated.  The contents of the <code>CDATA</code> section is the data that
              * will be used when updating the contents of the DOM element as specified by the
              * <code>&lt;update&gt;</code> element identifier.
              * <li>If an <code>&lt;update&gt;</code> element is found in the response
@@ -2756,7 +2867,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * <code>body</code> sections with the content from the response.</li>
 
              * <li class="changed_modified_2_2">If an
-             * <code>&lt;update&gt;</code> element is found in the 
+             * <code>&lt;update&gt;</code> element is found in the
              * response with an identifier containing
              * <code>jakarta.faces.ViewState</code>:
 
@@ -2779,7 +2890,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * corresponding non-partial Faces view.  Locate and update
              * the <code>jakarta.faces.ViewState</code> value for all
              * Faces forms covered in the <code>render</code> target
-             * list whose ID starts with the same 
+             * list whose ID starts with the same
              * &lt;VIEW_ROOT_CONTAINER_CLIENT_ID&gt; value.</li>
 
              * <li class="changed_added_2_2">If an
@@ -2798,7 +2909,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * <code>UINamingContainer.getSeparatorChar()</code>.
              * &lt;VIEW_ROOT_CONTAINER_CLIENT_ID&gt; is the return from
              * <code>UIViewRoot.getContainerClientId()</code> on the
-             * view from whence this state originated.             
+             * view from whence this state originated.
              * &lt;UNIQUE_PER_VIEW_NUMBER&gt; is a number that must be
              * unique within this view, but must not be included in the
              * view state.  This requirement is simply to satisfy XML
@@ -2806,7 +2917,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * corresponding non-partial Faces view.  Locate and update
              * the <code>jakarta.faces.ClientWindow</code> value for all
              * Faces forms covered in the <code>render</code> target
-             * list whose ID starts with the same 
+             * list whose ID starts with the same
              * &lt;VIEW_ROOT_CONTAINER_CLIENT_ID&gt; value.</li>
 
              * <li class="changed_added_2_3">If an <code>update</code> element is found in the response with the
@@ -2841,17 +2952,17 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * the <code>&lt;update&gt;</code> element's <code>CDATA</code> contents.</li>
              * </li>
              * <p><i>Insert Element Processing</i></p>
-    
+
              * <li>If an <code>&lt;insert&gt;</code> element is found in
              * the response with a nested <code>&lt;before&gt;</code>
              * element:
-            
+
              * <pre><code>&lt;insert&gt;
              *     &lt;before id="before id"&gt;
              *        &lt;![CDATA[...]]&gt;
              *     &lt;/before&gt;
              * &lt;/insert&gt;</code></pre>
-             * 
+             *
              * <ul>
              * <li>Extract this <code>&lt;before&gt;</code> element's <code>CDATA</code> contents
              * from the response.</li>
@@ -2860,17 +2971,17 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * the DOM element in the document.</li>
              * </ul>
              * </li>
-             * 
-             * <li>If an <code>&lt;insert&gt;</code> element is found in 
+             *
+             * <li>If an <code>&lt;insert&gt;</code> element is found in
              * the response with a nested <code>&lt;after&gt;</code>
              * element:
-             * 
+             *
              * <pre><code>&lt;insert&gt;
              *     &lt;after id="after id"&gt;
              *        &lt;![CDATA[...]]&gt;
              *     &lt;/after&gt;
              * &lt;/insert&gt;</code></pre>
-             * 
+             *
              * <ul>
              * <li>Extract this <code>&lt;after&gt;</code> element's <code>CDATA</code> contents
              * from the response.</li>
@@ -2925,9 +3036,9 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
              * <li>The <code>&lt;extensions&gt;</code> element provides a way for framework
              * implementations to provide their own information.</li>
              * <p><li>The implementation must check if &lt;script&gt; elements in the response can
-             * be automatically run, as some browsers support this feature and some do not.  
+             * be automatically run, as some browsers support this feature and some do not.
              * If they can not be run, then scripts should be extracted from the response and
-             * run separately.</li></p> 
+             * run separately.</li></p>
              * </ul>
              *
              * </p>
@@ -2970,7 +3081,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 var namingContainerId = partialResponse.getAttribute("id");
                 var namingContainerPrefix = namingContainerId ? (namingContainerId + faces.separatorchar) : "";
                 var responseType = partialResponse.firstChild;
-                
+
                 context.namingContainerId = namingContainerId;
                 context.namingContainerPrefix = namingContainerPrefix;
 
@@ -2984,14 +3095,14 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 if (responseType.nodeName === "error") { // it's an error
                     var errorName = "";
                     var errorMessage = "";
-                    
+
                     var element = responseType.firstChild;
                     if (element.nodeName === "error-name") {
                         if (null != element.firstChild) {
                             errorName = element.firstChild.nodeValue;
                         }
                     }
-                    
+
                     element = responseType.firstChild.nextSibling;
                     if (element.nodeName === "error-message") {
                         if (null != element.firstChild) {
@@ -3180,7 +3291,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                         var nodeName = el.nodeName.toLowerCase();
                         if (nodeName === "input" || nodeName === "select" ||
                             nodeName === "button" || nodeName === "object" ||
-                            nodeName === "textarea") {                                 
+                            nodeName === "textarea") {
                             addField(el.name, el.value);
                         }
                         break;
@@ -3201,7 +3312,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      * string, assume the string is a DOM id and get the element with
      * that id and start the search from there.  If present and the
      * value is a DOM element, start the search from there.
-     * @returns String The windowId of the current window, or null 
+     * @returns String The windowId of the current window, or null
      *  if the windowId cannot be determined.
      * @throws an error if more than one unique WindowId is found.
      * @function faces.getClientWindow
@@ -3264,20 +3375,20 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             if (!currentElement) {
                 return document.forms;
             }
-            
+
             var targetArr = [];
             if (!currentElement.tagName) return [];
             else if (currentElement.tagName.toLowerCase() == FORM) {
                 targetArr.push(currentElement);
                 return targetArr;
             }
-            
+
             //if query selectors are supported we can take
             //a non recursive shortcut
             if (currentElement.querySelectorAll) {
                 return currentElement.querySelectorAll(FORM);
             }
-            
+
             //old recursive way, due to flakeyness of querySelectorAll
             for (var cnt = currentElement.childNodes.length - 1; cnt >= 0; cnt--) {
                 var currentChild = currentElement.childNodes[cnt];
@@ -3285,7 +3396,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             }
             return targetArr;
         }
-        
+
         /**
          * @ignore
          */
@@ -3298,15 +3409,15 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             if (results != null) return results[1];
             return null;
         }
-        
+
         //byId ($)
         var finalNode = (node && (typeof node == "string" || node instanceof String)) ?
             document.getElementById(node) : (node || null);
-        
+
         var forms = getChildForms(finalNode);
         var result = fetchWindowIdFromForms(forms);
         return (null != result) ? result : fetchWindowIdFromURL();
-        
+
 
     };
 
@@ -3522,7 +3633,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
         return self;
 
     })(window);
-    
+
 
     /**
      * The namespace for Jakarta Faces JavaScript utilities.
@@ -3544,7 +3655,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      *
      * @returns boolean <code>false</code> if any scripts in the chain return <code>false</code>,
      *  otherwise returns <code>true</code>
-     * 
+     *
      * @function faces.util.chain
      */
     faces.util.chain = function(source, event) {
@@ -3556,18 +3667,36 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
         // RELEASE_PENDING rogerk - shouldn't this be getElementById instead of null
         var thisArg = (typeof source === 'object') ? source : null;
 
+        const head = getHead();
+        const nonce = getNonce();
+
         // Call back any scripts that were passed in
-        for (var i = 2; i < arguments.length; i++) {
+        for (let i = 2; i < arguments.length; i++) {
+            const facesChainThis = '__facesChainThis' + i;
+            const facesChainEvent = '__facesChainEvent' + i;
+            const facesChainResult = '__facesChainResult' + i;
 
-            var f = new Function("event", arguments[i]);
-            var returnValue = f.call(thisArg, event);
+            let result = undefined;
 
-            if (returnValue === false) {
+            try {
+                window[facesChainThis] = thisArg;
+                window[facesChainEvent] = event;
+                const script = 'window.' + facesChainResult + ' = (function(event) { ' + arguments[i] + ' }).call(window.' + facesChainThis + ', window.' + facesChainEvent + ');';
+                executeScriptWithNonce(head, script, nonce);
+                result = window[facesChainResult];
+            }
+            finally {
+                delete window[facesChainThis];
+                delete window[facesChainEvent];
+                delete window[facesChainResult];
+            }
+
+            if (result === false) {
                 return false;
             }
         }
         return true;
-        
+
     };
 
     /**
@@ -3763,7 +3892,7 @@ mojarra.ab = function ab(s, e, n, ex, re, op) {
 
 /*
  * This is called by command script when autorun=true.
- * 
+ *
  * @param l window onload callback function
  */
 mojarra.l = function l(l) {
@@ -3783,4 +3912,15 @@ mojarra.l = function l(l) {
     else {
         window.onload = l;
     }
+};
+
+/**
+ * Add event listener.
+ *
+ * @param id element id
+ * @param ev event name
+ * @param fn function
+ */
+mojarra.ael = function ael(id, ev, fn) {
+    document.getElementById(id).addEventListener(ev, fn);
 };

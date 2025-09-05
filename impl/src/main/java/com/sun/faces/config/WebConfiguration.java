@@ -114,7 +114,7 @@ public class WebConfiguration {
     private FaceletsConfiguration faceletsConfig;
 
     private boolean hasFlows;
-    
+
     private String specificationVersion;
 
     // ------------------------------------------------------------ Constructors
@@ -136,7 +136,7 @@ public class WebConfiguration {
         getOptionValue(WebContextInitParameter.ResourceExcludes, " ");
         getOptionValue(WebContextInitParameter.FaceletsViewMappings, ";");
         getOptionValue(WebContextInitParameter.FaceletsSuffix, " ");
-        
+
         specificationVersion = getClass().getPackage().getSpecificationVersion();
     }
 
@@ -785,6 +785,8 @@ public class WebConfiguration {
         WebAppResourcesDirectory(ResourceHandler.WEBAPP_RESOURCES_DIRECTORY_PARAM_NAME, "/resources"),
         WebAppContractsDirectory(ResourceHandler.WEBAPP_CONTRACTS_DIRECTORY_PARAM_NAME, "/contracts"),
         ExceptionTypesToIgnoreInLogging("com.sun.faces.exceptionTypesToIgnoreInLogging", ""),
+        CspNonceEnabled(ResourceHandler.ENABLE_CSP_NONCE_PARAM_NAME, ""),
+        CspPolicy(ResourceHandler.CSP_POLICY_PARAM_NAME, ResourceHandler.DEFAULT_CSP_POLICY),
         ;
 
         private String defaultValue;

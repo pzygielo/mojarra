@@ -11,7 +11,7 @@ declare global {
 }
 
 export const FACES_JS_UNCOMPRESSED = path.resolve(__dirname, "../../main/resources/META-INF/resources/jakarta.faces/faces-uncompressed.js");
-export const FACES_JS = path.resolve(__dirname, "../../../target/generated-resources/yui/META-INF/resources/jakarta.faces/faces.js");
+export const FACES_JS = path.resolve(__dirname, "../../../target/classes/META-INF/resources/jakarta.faces/faces.js");
 
 /**
  * Parse the @version JSDoc tag from faces-uncompressed.js and derive expected specversion and implversion.

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<?xml version="1.0" encoding="UTF-8"?>
 <!--
 
     Copyright (c) Contributors to Eclipse Foundation.
@@ -16,15 +16,9 @@
     SPDX-License-Identifier: EPL-2.0 OR GPL-2.0 WITH Classpath-exception-2.0
 
 -->
-<html
-    xmlns:h="jakarta.faces.html"
->
-    <h:head>
-        <title>issue 5676</title>
-        <h:outputStylesheet name="issue5676.css" />
-    </h:head>
-    <h:body>
-        <div id="webjars">#{resource['webjars:font-awesome/7.2.0/webfonts/fa-regular-400.woff2']}</div>
-        <div id="pftheme">#{resource['primefaces-casablanca:images/ui-bg_flat_75_ffffff_40x100.png']}</div>
-    </h:body>
-</html>
+<faces-config 
+    xmlns="https://jakarta.ee/xml/ns/jakartaee"
+    xmlns:xsi="https://www.w3.org/2001/XMLSchema-instance" 
+    xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-facesconfig_4_0.xsd"
+    version="4.0">
+</faces-config>

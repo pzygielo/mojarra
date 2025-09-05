@@ -21,6 +21,7 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Stream;
 
+import jakarta.el.ELContext;
 import jakarta.faces.context.FacesContext;
 
 /**
@@ -40,7 +41,7 @@ import jakarta.faces.context.FacesContext;
  * <blockquote>
  *
  * <p>
- * ResourceHandler defines a path based packaging convention for resources. The default implementation of
+ * ResourceHandler defines a path-based packaging convention for resources. The default implementation of
  * <code>ResourceHandler</code> must support packaging resources in the classpath or in the web application root. See
  * section 2.6.1 "Packaging Resources" of the Jakarta Faces Specification Document
  * for the normative specification of packaging resources.
@@ -259,6 +260,63 @@ public abstract class ResourceHandler {
      */
     public static final String RESOURCE_EXCLUDES_DEFAULT_VALUE = ".class .jsp .jspx .properties .xhtml .groovy";
 
+    /**
+     * <p class="changed_added_4_0">
+     * The boolean context parameter name to explicitly enable Content Security Policy (CSP) nonce generation.
+     * When this parameter is set to {@code true}, the runtime generates a Content Security Policy (CSP) nonce value for the current view.
+     * The generated nonce can be obtained via {@link #getCurrentNonce(jakarta.faces.context.FacesContext)}.
+     * If this context parameter is not enabled, no nonce is generated and {@link #getCurrentNonce(jakarta.faces.context.FacesContext)} returns {@code null}.
+     * </p>
+     * <p>
+     * When this parameter is set to {@code true}, the runtime will also consult {@link #CSP_POLICY_PARAM_NAME} if present,
+     * or fall back to {@link #DEFAULT_CSP_POLICY} to determine the exact policy sent in the <code>Content-Security-Policy</code> response header.
+     * </p>
+     *
+     * @since 4.0
+     */
+    public static final String ENABLE_CSP_NONCE_PARAM_NAME = "jakarta.faces.ENABLE_CSP_NONCE";
+
+    /**
+     * <p class="changed_added_4_0">
+     * The string context parameter name to determine the Content Security Policy (CSP) policy to be sent in the <code>Content-Security-Policy</code> response header.
+     * This parameter is only consulted and applied when {@link #ENABLE_CSP_NONCE_PARAM_NAME} is explicitly set to {@code true}.
+     * If nonce generation is not enabled, this parameter is ignored and no <code>Content-Security-Policy</code> header is added.
+     * </p>
+     * <p>
+     * The value must be a valid CSP policy string and <strong>must</strong> include the expression <code>#{nonce}</code> (e.g., <code>'nonce-#{nonce}'</code>),
+     * which the runtime will substitute with the nonce value of the current view as returned by {@link #getCurrentNonce(jakarta.faces.context.FacesContext)}.
+     * The nonce remains the same for the duration of the view, including postbacks and Ajax requests. A new nonce is only generated when a new view is created (e.g., a fresh GET navigation to a different page).
+     * Other EL expressions besides the special <code>#{nonce}</code> placeholder will be evaluated on a per-request basis using the current {@link ELContext}.
+     * If this parameter is not specified, the value defined by {@link #DEFAULT_CSP_POLICY} is used.
+     * </p>
+     * <p>
+     * This has been backported from Jakarta Faces 5.0 to provide CSP nonce support for older applications.
+     * </p>
+     * <p>
+     * Example values:
+     * </p>
+     * <ul>
+     * <li>Default: <code>script-src 'self' 'nonce-#{nonce}' 'strict-dynamic'</code></li>
+     * <li>Extended: <code>script-src 'self' 'nonce-#{nonce}' 'strict-dynamic' https://analytics.google.com</code></li>
+     * <li>With expressions: <code>script-src 'self' 'nonce-#{nonce}' 'strict-dynamic' #{someBean.spaceSeparatedStringOfAllowedScriptSources};
+     * style-src 'self' #{someBean.spaceSeparatedStringOfAllowedStyleSources}; frame-ancestors 'none'</code></li>
+     * </ul>
+     *
+     * @since 4.0
+     */
+    public static final String CSP_POLICY_PARAM_NAME = "jakarta.faces.CSP_POLICY";
+
+    /**
+     * <p class="changed_added_4_0">
+     * The default value for the <code>Content-Security-Policy</code> response header if the {@link #ENABLE_CSP_NONCE_PARAM_NAME} is set to {@code true} <strong>and</strong> the {@link #CSP_POLICY_PARAM_NAME} is not provided.
+     * The value is <code>{@value}</code>.
+     * The runtime will substitute <code>#{nonce}</code> with the actual nonce value of the current view.
+     * </p>
+     *
+     * @since 4.0
+     */
+    public static final String DEFAULT_CSP_POLICY = "script-src 'self' 'nonce-#{nonce}' 'strict-dynamic'";
+
     // ---------------------------------------------------------- Public Methods
 
     /**
@@ -311,7 +369,7 @@ public abstract class ResourceHandler {
      *
      * <li>
      * <p>
-     * Considering resource library contracts (at the locations specified in the 
+     * Considering resource library contracts (at the locations specified in the
      * Jakarta Faces Specification Document section 2.7 "Resource Library Contracts").
      * </p>
      * </li>
@@ -324,7 +382,7 @@ public abstract class ResourceHandler {
      *
      * <li>
      * <p>
-     * Considering faces flows (at the locations specified in the 
+     * Considering faces flows (at the locations specified in the
      * Jakarta Faces Specification Document section 11.3.3 "Faces Flows").
      * </p>
      * </li>
@@ -421,7 +479,7 @@ public abstract class ResourceHandler {
      * <div class="changed_added_2_2">
      *
      * <p>
-     * The resource must be identified according to the specification in 
+     * The resource must be identified according to the specification in
      * section 2.6.1.3 "Resource Identifiers" of the Jakarta Faces Specification Document. New requirements were
      * introduced in version 2.2 of the specification.
      * </p>
@@ -747,4 +805,37 @@ public abstract class ResourceHandler {
         return resourceIdentifiers != null && resourceIdentifiers.contains(resourceIdentifier);
     }
 
+    /**
+     * <p class="changed_added_4_0">
+     * Returns the Content Security Policy (CSP) nonce for the current request, or {@code null} if CSP nonce support is not enabled. When enabled via
+     * {@link #ENABLE_CSP_NONCE_PARAM_NAME}, then the runtime ensures that each view has a consistent nonce value that can be used to allow inline scripts to execute safely.
+     * </p>
+     *
+     * <p>
+     * The returned nonce is intended to be used:
+     * </p>
+     *
+     * <ul>
+     *   <li>As the value of the {@code nonce} attribute on rendered {@code <script>} elements.</li>
+     *   <li>As part of the {@code Content-Security-Policy} response header, for example: <code>script-src 'self' 'nonce-&lt;value&gt;'</code>.</li>
+     * </ul>
+     *
+     * <p>
+     * Implementations must generate a unique nonce for the current view and save it in the {@link jakarta.faces.component.UIViewRoot#getViewMap view state}.
+     * The same nonce will be returned for the duration of the view, including postbacks and AJAX requests.
+     * For backward compatibility, a default implementation is provided that returns {@code null}.
+     * </p>
+     *
+     * <p>
+     * This method has been backported from Jakarta Faces 5.0 to provide CSP nonce support for older applications.
+     * </p>
+     *
+     * @param context The {@link FacesContext} for this request.
+     * @return a Base64-encoded CSP nonce value, or {@code null} if CSP nonce support is not enabled.
+     *
+     * @since 4.0
+     */
+    public String getCurrentNonce(FacesContext context) {
+        return null;
+    }
 }
