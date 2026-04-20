@@ -270,63 +270,6 @@
             </plugins>
         </pluginManagement>
         <plugins>
-            <!-- Compress/minify faces.js -->
-            <!-- https://blutorange.github.io/closure-compiler-maven-plugin/minify-mojo.html -->
-            <plugin>
-                <groupId>com.github.blutorange</groupId>
-                <artifactId>closure-compiler-maven-plugin</artifactId>
-                <version>3.0.1</version> <!-- 3.x requires Java 21 -->
-                <executions>
-                    <!-- Process all files in the "includes" directory individually-->
-                    <execution>
-                        <id>minify-faces-js</id>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>minify</goal>
-                        </goals>
-                        <configuration>
-                            <encoding>UTF-8</encoding>
-                            <!-- Base configuration for all executions (bundles) -->
-                            <baseSourceDir>${project.basedir}/src/main/resources/META-INF/resources/</baseSourceDir>
-                            <baseTargetDir>${project.build.directory}/generated-resources/minified/META-INF/resources/</baseTargetDir>
-                            <sourceDir>jakarta.faces</sourceDir>
-                            <targetDir>jakarta.faces</targetDir>
-                            <includes>
-                                <include>faces-uncompressed.js</include>
-                            </includes>
-                            <outputFilename>#{path}/faces.js</outputFilename>
-                            <skipMerge>true</skipMerge>
-                            <closureLanguageOut>NO_TRANSPILE</closureLanguageOut>
-                            <closureEmitUseStrict>false</closureEmitUseStrict>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
-
-            <!-- Adds the paths where the source and resources generated above was stored -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>build-helper-maven-plugin</artifactId>
-                <version>3.6.1</version>
-                <executions>
-                    <execution>
-                        <id>generate-resources</id>
-                        <phase>generate-resources</phase>
-                        <goals>
-                            <goal>add-resource</goal>
-                        </goals>
-                        <configuration>
-                            <resources>
-                                <resource>
-                                    <directory>${project.build.directory}/generated-resources/minified</directory>
-                                </resource>
-                            </resources>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-
             <plugin>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.5</version>
@@ -339,33 +282,50 @@
                 </configuration>
             </plugin>
 
-            <!-- Runs JavaScript unit tests via Jest -->
+            <!-- Minifies faces.js via Terser, and runs JavaScript unit tests via Jest. -->
             <plugin>
                 <groupId>com.github.eirslett</groupId>
                 <artifactId>frontend-maven-plugin</artifactId>
-                <version>2.0.0</version>
+                <version>1.15.1</version>
                 <configuration>
-                    <workingDirectory>${project.basedir}/src/test/ts</workingDirectory>
+                    <nodeVersion>v22.22.0</nodeVersion>
                     <installDirectory>${project.build.directory}/frontend</installDirectory>
+                    <workingDirectory>${project.basedir}/src/main/js</workingDirectory>
                 </configuration>
                 <executions>
                     <execution>
                         <id>install-node-and-npm</id>
-                        <phase>test</phase>
                         <goals>
                             <goal>install-node-and-npm</goal>
                         </goals>
-                        <configuration>
-                            <nodeVersion>v22.22.0</nodeVersion>
-                        </configuration>
                     </execution>
                     <execution>
                         <id>npm-install</id>
+                        <goals>
+                            <goal>npm</goal>
+                        </goals>
+                        <configuration>
+                            <arguments>install</arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-run-build</id>
+                        <goals>
+                            <goal>npm</goal>
+                        </goals>
+                        <configuration>
+                            <arguments>run build</arguments>
+                        </configuration>
+                    </execution>
+                    <execution>
+                        <id>npm-install-test</id>
                         <phase>test</phase>
                         <goals>
                             <goal>npm</goal>
                         </goals>
                         <configuration>
+                            <skip>${maven.test.skip}</skip>
+                            <workingDirectory>${project.basedir}/src/test/ts</workingDirectory>
                             <arguments>install</arguments>
                         </configuration>
                     </execution>
@@ -376,6 +336,8 @@
                             <goal>npm</goal>
                         </goals>
                         <configuration>
+                            <skip>${maven.test.skip}</skip>
+                            <workingDirectory>${project.basedir}/src/test/ts</workingDirectory>
                             <arguments>test</arguments>
                         </configuration>
                     </execution>
