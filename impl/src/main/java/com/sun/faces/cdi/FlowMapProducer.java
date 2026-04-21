@@ -19,12 +19,12 @@ package com.sun.faces.cdi;
 import java.lang.reflect.Type;
 import java.util.Map;
 
+import jakarta.enterprise.context.RequestScoped;
 import jakarta.enterprise.inject.spi.BeanManager;
 import jakarta.faces.annotation.FlowMap;
 import jakarta.faces.application.Application;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.flow.FlowHandler;
-import jakarta.faces.flow.FlowScoped;
 
 /**
  * <p class="changed_added_2_3">
@@ -44,7 +44,7 @@ public class FlowMapProducer extends CdiProducer<Map<Object, Object>> {
 
     public FlowMapProducer(BeanManager beanManager) {
         super.name("flowScope")
-            .scope(FlowScoped.class)
+            .scope(RequestScoped.class)
             .qualifiers(FlowMap.Literal.INSTANCE)
             .beanClass(beanManager, Map.class)
             .types(new ParameterizedTypeImpl(Map.class, new Type[] { Object.class, Object.class }), Map.class, Object.class)
