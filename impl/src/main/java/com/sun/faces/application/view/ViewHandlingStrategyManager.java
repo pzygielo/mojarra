@@ -16,8 +16,6 @@
 
 package com.sun.faces.application.view;
 
-import java.util.Arrays;
-
 /**
  * Interface for working with multiple {@link com.sun.faces.application.view.ViewHandlingStrategy} implementations.
  */
@@ -48,30 +46,35 @@ public class ViewHandlingStrategyManager {
      *
      * @throws ViewHandlingStrategyNotFoundException if no match is found.
      *
-     * @return a {@link com.sun.faces.application.view.ViewHandlingStrategy} for the specifed <code>viewId</code>
+     * @return a {@link com.sun.faces.application.view.ViewHandlingStrategy} for the specified <code>viewId</code>
      */
     public ViewHandlingStrategy getStrategy(String viewId) {
-        return Arrays.stream(strategies)
-                     .filter(strategy -> strategy.handlesViewId(viewId))
-                     .findFirst()
-                     .orElseThrow(()-> new ViewHandlingStrategyNotFoundException(viewId));
+        if (viewId != null) {
+            var snapshot = strategies; // defensive copy of volatile "pointer"
+            for (ViewHandlingStrategy strategy : snapshot)
+                if (strategy.handlesViewId(viewId))
+                    return strategy;
+        }
+
+        // viewId is null or strategy not found
+        throw new ViewHandlingStrategyNotFoundException(viewId);
     }
 
     /**
      * @return the currently registered {@link com.sun.faces.application.view.ViewHandlingStrategy} implementations.
      */
     public ViewHandlingStrategy[] getViewHandlingStrategies() {
-        return strategies.clone();
+        return strategies.clone(); // defensive copy
     }
 
     /**
      * Update the {@link com.sun.faces.application.view.ViewHandlingStrategy} implementations to be applied when processing
      * Faces requests.
      *
-     * @param stratagies the new view handling strategies
+     * @param strategies the new view handling strategies
      */
-    public synchronized void setViewHandlingStrategies(ViewHandlingStrategy[] stratagies) {
-        strategies = stratagies.clone();
+    public synchronized void setViewHandlingStrategies(ViewHandlingStrategy[] strategies) {
+        this.strategies = strategies.clone(); // defensive copy
     }
 
 }
