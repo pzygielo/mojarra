@@ -271,13 +271,12 @@ public class SelectManyCheckboxListRenderer extends MenuRenderer {
         // Apply HTML 4.x attributes specified on UISelectMany component to all
         // items in the list except styleClass and style which are rendered as
         // attributes of outer most table.
-        RenderKitUtils.renderPassThruAttributes(context, writer, component, ATTRIBUTES, getNonOnClickSelectBehaviors(component));
-
+        RenderKitUtils.renderPassThruAttributes(context, writer, component, idString, false, ATTRIBUTES, "click", "valueChange");
         RenderKitUtils.renderXHTMLStyleBooleanAttributes(writer, component);
 
         writer.endElement("input");
 
-        RenderKitUtils.renderSelectOnclickEventListener(context, component, idString, false);
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, idString);
 
         writer.startElement("label", component);
         writer.writeAttribute("for", idString, "for");

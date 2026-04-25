@@ -311,12 +311,12 @@ public class RadioRenderer extends SelectManyCheckboxListRenderer implements Com
         // Apply HTML 4.x attributes specified on UISelectMany component to all
         // items in the list except styleClass and style which are rendered as
         // attributes of outer most table.
-        RenderKitUtils.renderPassThruAttributes(context, writer, component, ATTRIBUTES, getNonOnClickSelectBehaviors(component));
+        RenderKitUtils.renderPassThruAttributes(context, writer, component, clientId, false, ATTRIBUTES, "click", "valueChange");
         RenderKitUtils.renderXHTMLStyleBooleanAttributes(writer, component);
 
         writer.endElement("input");
 
-        RenderKitUtils.renderSelectOnclickEventListener(context, component, clientId, false);
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, clientId);
     }
 
     protected void renderLabel(ResponseWriter writer, UIComponent component, String forClientId, SelectItem curItem, OptionComponentInfo optionInfo)

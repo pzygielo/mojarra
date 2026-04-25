@@ -133,12 +133,12 @@ public class TextRenderer extends HtmlBasicInputRenderer {
 
             // style is rendered as a passthru attribute
             Attribute[] attributes = component instanceof HtmlInputFile ? INPUTFILE_ATTRIBUTES : INPUTTEXT_ATTRIBUTES;
-            RenderKitUtils.renderPassThruAttributes(context, writer, component, attributes, getNonOnChangeBehaviors(component));
+            RenderKitUtils.renderPassThruAttributes(context, writer, component, null, hasPassthroughAttributes, attributes, "change", "valueChange");
             RenderKitUtils.renderXHTMLStyleBooleanAttributes(writer, component);
 
             writer.endElement("input");
 
-            RenderKitUtils.renderOnchangeEventListener(context, component, hasPassthroughAttributes);
+            RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
 
         } else if (isOutput = component instanceof UIOutput) {
             if (styleClass != null || style != null || dir != null || lang != null || title != null || hasPassthroughAttributes

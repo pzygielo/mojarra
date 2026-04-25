@@ -78,7 +78,7 @@ public class SecretRenderer extends HtmlBasicInputRenderer {
             writer.writeAttribute("value", currentValue, "value");
         }
 
-        RenderKitUtils.renderPassThruAttributes(context, writer, component, ATTRIBUTES, getNonOnChangeBehaviors(component));
+        RenderKitUtils.renderPassThruAttributes(context, writer, component, null, false, ATTRIBUTES, "change", "valueChange");
         RenderKitUtils.renderXHTMLStyleBooleanAttributes(writer, component);
 
         String styleClass;
@@ -88,8 +88,7 @@ public class SecretRenderer extends HtmlBasicInputRenderer {
 
         writer.endElement("input");
 
-        RenderKitUtils.renderOnchangeEventListener(context, component, false);
-
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
     }
 
 } // end of class SecretRenderer

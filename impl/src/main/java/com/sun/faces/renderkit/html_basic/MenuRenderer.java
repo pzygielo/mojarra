@@ -20,7 +20,7 @@ package com.sun.faces.renderkit.html_basic;
 
 import static com.sun.faces.RIConstants.NO_VALUE;
 import static com.sun.faces.renderkit.RenderKitUtils.getSelectItems;
-import static com.sun.faces.renderkit.RenderKitUtils.renderOnchangeEventListener;
+import static com.sun.faces.renderkit.RenderKitUtils.flushPendingBehaviorEventListeners;
 import static com.sun.faces.renderkit.RenderKitUtils.renderPassThruAttributes;
 import static com.sun.faces.renderkit.RenderKitUtils.renderXHTMLStyleBooleanAttributes;
 import static com.sun.faces.util.MessageUtils.CONVERSION_ERROR_MESSAGE_ID;
@@ -680,7 +680,7 @@ public class MenuRenderer extends HtmlBasicInputRenderer {
 
         writeDefaultSize(writer, size);
 
-        renderPassThruAttributes(context, writer, component, ATTRIBUTES, getNonOnChangeBehaviors(component));
+        renderPassThruAttributes(context, writer, component, null, false, ATTRIBUTES, "change", "valueChange");
         renderXHTMLStyleBooleanAttributes(writer, component);
 
         // Now, write the buffered option content
@@ -688,7 +688,7 @@ public class MenuRenderer extends HtmlBasicInputRenderer {
 
         writer.endElement("select");
 
-        renderOnchangeEventListener(context, component, false);
+        flushPendingBehaviorEventListeners(context, component, null);
     }
 
     protected Integer getSizeAttribute(UIComponent component) {

@@ -60,7 +60,7 @@ public class TextareaRenderer extends HtmlBasicInputRenderer {
         }
 
         // style is rendered as a passthru attribute
-        RenderKitUtils.renderPassThruAttributes(context, writer, component, ATTRIBUTES);
+        RenderKitUtils.renderPassThruAttributes(context, writer, component, null, false, ATTRIBUTES, "change", "valueChange");
         RenderKitUtils.renderXHTMLStyleBooleanAttributes(writer, component);
 
         if (component.getAttributes().containsKey("com.sun.faces.addNewLineAtStart")
@@ -75,7 +75,7 @@ public class TextareaRenderer extends HtmlBasicInputRenderer {
 
         writer.endElement("textarea");
 
-        RenderKitUtils.renderOnchangeEventListener(context, component, false);
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
     }
 
 }
