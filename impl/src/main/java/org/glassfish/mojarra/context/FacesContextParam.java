@@ -4,9 +4,12 @@ import static java.util.Objects.requireNonNull;
 import static java.util.Optional.ofNullable;
 import static org.glassfish.mojarra.RIConstants.EMPTY_STRING_ARRAY;
 
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Pattern;
 
 import jakarta.faces.application.Application;
@@ -231,6 +234,16 @@ public enum FacesContextParam {
     private final StringArray separated;
     private final Class<?> type;
 
+    private static final Logger LOGGER = Logger.getLogger(FacesContextParam.class.getName());
+
+    /**
+     * Maps spec context-parameter names to their legacy Mojarra-specific equivalents from 4.x.
+     * When a spec name is unset but its legacy alias is, the legacy value is used and a deprecation warning is logged.
+     */
+    private static final Map<String, String> LEGACY_ALIASES = Map.of(
+            ResourceHandler.ENABLE_CSP_NONCE_PARAM_NAME, "com.sun.faces.enableCspNonce",
+            ResourceHandler.CSP_POLICY_PARAM_NAME, "com.sun.faces.cspPolicy");
+
     private <T> FacesContextParam(String name, T defaultValue) {
         this(name, defaultValue, null, null);
     }
@@ -335,6 +348,20 @@ public enum FacesContextParam {
     @SuppressWarnings("unchecked")
     private <T> Optional<T> getContextParamValue(FacesContext context) {
         String value = context.getExternalContext().getInitParameter(name);
+
+        if (value == null) {
+            String legacyName = LEGACY_ALIASES.get(name);
+
+            if (legacyName != null) {
+                value = context.getExternalContext().getInitParameter(legacyName);
+
+                if (value != null && LOGGER.isLoggable(Level.WARNING)) {
+                    LOGGER.log(Level.WARNING,
+                            "Context initialization parameter ''{0}'' is deprecated. The option will still be configured, but please use ''{1}'' in the future.",
+                            new Object[] { legacyName, name });
+                }
+            }
+        }
 
         if (value == null) {
             return Optional.empty();
