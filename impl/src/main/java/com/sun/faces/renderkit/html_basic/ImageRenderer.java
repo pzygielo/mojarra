@@ -76,6 +76,7 @@ public class ImageRenderer extends HtmlBasicRenderer {
             writer.writeAttribute("class", styleClass, "styleClass");
         }
         writer.endElement("img");
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
         if (logger.isLoggable(Level.FINER)) {
             logger.log(Level.FINER, "End encoding component " + component.getId());
         }

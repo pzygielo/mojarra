@@ -20,21 +20,19 @@ package com.sun.faces.renderkit.html_basic;
 
 import java.io.IOException;
 import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 
-import com.sun.faces.renderkit.Attribute;
-import com.sun.faces.renderkit.AttributeManager;
-import com.sun.faces.renderkit.RenderKitUtils;
-
 import jakarta.faces.component.UICommand;
 import jakarta.faces.component.UIComponent;
-import jakarta.faces.component.behavior.ClientBehavior;
 import jakarta.faces.component.behavior.ClientBehaviorContext;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.context.ResponseWriter;
 import jakarta.faces.event.ActionEvent;
+
+import com.sun.faces.renderkit.Attribute;
+import com.sun.faces.renderkit.AttributeManager;
+import com.sun.faces.renderkit.RenderKitUtils;
 
 /**
  * <b>CommandLinkRenderer</b> is a class that renders the current value of <code>UICommand</code> as a HyperLink that
@@ -154,9 +152,15 @@ public class CommandLinkRenderer extends LinkRenderer {
         writer.startElement("a", command);
         writeIdAttributeIfNecessary(context, writer, command);
         writer.writeAttribute("href", "#", "href");
-        RenderKitUtils.renderPassThruAttributes(context, writer, command, ATTRIBUTES, getNonOnClickBehaviors(command));
+        RenderKitUtils.renderPassThruAttributes(context, writer, command, null, false, ATTRIBUTES, "click", "action");
 
         RenderKitUtils.renderXHTMLStyleBooleanAttributes(writer, command);
+
+        writeCommonLinkAttributes(writer, command);
+
+        // render the current value as link text.
+        writeValue(command, writer);
+        writer.flush();
 
         String target = (String) command.getAttributes().get("target");
         if (target != null) {
@@ -166,14 +170,7 @@ public class CommandLinkRenderer extends LinkRenderer {
         }
 
         Collection<ClientBehaviorContext.Parameter> params = getBehaviorParameters(command);
-        RenderKitUtils.renderOnclick(context, command, params, target, true);
-
-        writeCommonLinkAttributes(writer, command);
-
-        // render the current value as link text.
-        writeValue(command, writer);
-        writer.flush();
-
+        RenderKitUtils.renderOnclickEventListener(context, command, params, target, true);
     }
 
     // --------------------------------------------------------- Private Methods
@@ -189,17 +186,6 @@ public class CommandLinkRenderer extends LinkRenderer {
         // Fire an action event if we've had a traditional (non-Ajax)
         // postback, or if we've had a partial or behavior-based postback.
         return requestParamMap.containsKey(clientId) || RenderKitUtils.isPartialOrBehaviorAction(context, clientId);
-    }
-
-    // Returns the Behaviors map, but only if it contains some entry other
-    // than those handled by renderOnclick(). This helps us optimize
-    // renderPassThruAttributes() in the very common case where the
-    // link only contains an "action" (or "click") Behavior. In that
-    // we pass a null Behaviors map into renderPassThruAttributes(),
-    // which allows us to take a more optimized code path.
-    private static Map<String, List<ClientBehavior>> getNonOnClickBehaviors(UIComponent component) {
-
-        return getPassThruBehaviors(component, "click", "action");
     }
 
 } // end of class CommandLinkRenderer

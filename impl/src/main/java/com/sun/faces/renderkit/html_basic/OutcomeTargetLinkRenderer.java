@@ -22,6 +22,7 @@ import java.util.List;
 
 import com.sun.faces.renderkit.Attribute;
 import com.sun.faces.renderkit.AttributeManager;
+import com.sun.faces.renderkit.RenderKitUtils;
 import com.sun.faces.util.MessageUtils;
 import com.sun.faces.util.Util;
 
@@ -86,6 +87,7 @@ public class OutcomeTargetLinkRenderer extends OutcomeTargetRenderer {
         String endElement = Util.componentIsDisabled(component) || context.getAttributes().remove(NO_NAV_CASE) != null ? "span" : "a";
         writer.endElement(endElement);
 
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
     }
 
     // ------------------------------------------------------- Protected Methods

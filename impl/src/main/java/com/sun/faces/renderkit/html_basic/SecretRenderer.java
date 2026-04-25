@@ -20,13 +20,13 @@ package com.sun.faces.renderkit.html_basic;
 
 import java.io.IOException;
 
-import com.sun.faces.renderkit.Attribute;
-import com.sun.faces.renderkit.AttributeManager;
-import com.sun.faces.renderkit.RenderKitUtils;
-
 import jakarta.faces.component.UIComponent;
 import jakarta.faces.context.FacesContext;
 import jakarta.faces.context.ResponseWriter;
+
+import com.sun.faces.renderkit.Attribute;
+import com.sun.faces.renderkit.AttributeManager;
+import com.sun.faces.renderkit.RenderKitUtils;
 
 /**
  * <B>SecretRenderer</B> is a class that renders the current value of <code>UIInput</code> component as a password field.
@@ -78,10 +78,8 @@ public class SecretRenderer extends HtmlBasicInputRenderer {
             writer.writeAttribute("value", currentValue, "value");
         }
 
-        RenderKitUtils.renderPassThruAttributes(context, writer, component, ATTRIBUTES, getNonOnChangeBehaviors(component));
+        RenderKitUtils.renderPassThruAttributes(context, writer, component, null, false, ATTRIBUTES, "change", "valueChange");
         RenderKitUtils.renderXHTMLStyleBooleanAttributes(writer, component);
-
-        RenderKitUtils.renderOnchange(context, component, false);
 
         String styleClass;
         if (null != (styleClass = (String) component.getAttributes().get("styleClass"))) {
@@ -90,6 +88,7 @@ public class SecretRenderer extends HtmlBasicInputRenderer {
 
         writer.endElement("input");
 
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
     }
 
 } // end of class SecretRenderer

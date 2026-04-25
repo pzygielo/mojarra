@@ -31,6 +31,7 @@ import java.util.function.BooleanSupplier;
 import java.util.logging.Level;
 import java.util.regex.Pattern;
 
+import io.github.bonigarcia.wdm.WebDriverManager;
 import org.apache.commons.lang3.exception.UncheckedException;
 import org.jboss.arquillian.container.test.api.Deployment;
 import org.jboss.arquillian.junit5.ArquillianExtension;
@@ -50,8 +51,6 @@ import org.openqa.selenium.chrome.ChromeOptions;
 import org.openqa.selenium.support.PageFactory;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
-import io.github.bonigarcia.wdm.WebDriverManager;
-
 @ExtendWith(ArquillianExtension.class)
 @TestInstance(Lifecycle.PER_CLASS)
 public abstract class BaseIT {
@@ -59,7 +58,7 @@ public abstract class BaseIT {
     protected WebDriver browser;
 
     @ArquillianResource
-    private URL baseURL;
+    protected URL baseURL;
 
     @Deployment(testable = false)
     public static WebArchive createDeployment() {

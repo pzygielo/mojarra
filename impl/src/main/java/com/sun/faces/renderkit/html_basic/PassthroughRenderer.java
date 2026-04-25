@@ -89,6 +89,8 @@ public class PassthroughRenderer extends HtmlBasicRenderer {
         Map<String, Object> attrs = component.getPassThroughAttributes();
         String localName = (String) attrs.get(Renderer.PASSTHROUGH_RENDERER_LOCALNAME_KEY);
         context.getResponseWriter().endElement(localName);
+
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
     }
 
     @Override
