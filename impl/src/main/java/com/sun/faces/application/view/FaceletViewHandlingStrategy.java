@@ -1988,8 +1988,7 @@ public class FaceletViewHandlingStrategy extends ViewHandlingStrategy {
 
     private String evaluateCspHeader(FacesContext context, String nonce) {
         if (cspHeader == null) {
-            cspHeader = //WebConfiguration.WebContextInitParameter.CspPolicy.
-                WebConfiguration.getInstance(context.getExternalContext()).getOptionValue(WebConfiguration.WebContextInitParameter.CspPolicy);
+            cspHeader = WebConfiguration.getInstance(context.getExternalContext()).getOptionValue(WebConfiguration.WebContextInitParameter.CspPolicy);
 
             if (!cspHeader.contains(NONCE_EXPRESSION)) {
                 throw new IllegalArgumentException("The context parameter " + WebConfiguration.WebContextInitParameter.CspPolicy.name() + " must include the expression '" + NONCE_EXPRESSION + "'");

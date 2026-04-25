@@ -285,7 +285,7 @@ public abstract class ResourceHandler {
      * <p>
      * The value must be a valid CSP policy string and <strong>must</strong> include the expression <code>#{nonce}</code> (e.g., <code>'nonce-#{nonce}'</code>),
      * which the runtime will substitute with the nonce value of the current view as returned by {@link #getCurrentNonce(jakarta.faces.context.FacesContext)}.
-     * The nonce remains the same for the duration of the view, including postbacks and Ajax requests. A new nonce is only generated when a new view is created (e.g., a fresh GET navigation to a different page).
+     * For ajax requests, the nonce remains the same as long as the view lives. For non-ajax (full page) requests, a new nonce is generated.
      * Other EL expressions besides the special <code>#{nonce}</code> placeholder will be evaluated on a per-request basis using the current {@link ELContext}.
      * If this parameter is not specified, the value defined by {@link #DEFAULT_CSP_POLICY} is used.
      * </p>

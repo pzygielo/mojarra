@@ -423,7 +423,10 @@ public class ResourceHandlerImpl extends ResourceHandler {
 
             if (nonce == null) {
                 var viewMap = context.getViewRoot().getViewMap(true);
-                nonce = (String) viewMap.get(CURRENT_NONCE);
+
+                if (context.getPartialViewContext().isPartialRequest()) {
+                    nonce = (String) viewMap.get(CURRENT_NONCE);
+                }
 
                 if (nonce == null) {
                     byte[] bytes = new byte[32];
