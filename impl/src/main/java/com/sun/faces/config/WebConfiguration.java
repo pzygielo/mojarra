@@ -66,6 +66,7 @@ import jakarta.faces.webapp.FacesServlet;
 import jakarta.servlet.ServletContext;
 
 import com.sun.faces.application.ApplicationAssociate;
+import com.sun.faces.application.resource.ResourceHandlerImpl;
 import com.sun.faces.application.view.FaceletViewHandlingStrategy;
 import com.sun.faces.facelets.util.Classpath;
 import com.sun.faces.lifecycle.HttpMethodRestrictionsPhaseListener;
@@ -784,6 +785,7 @@ public class WebConfiguration {
         WebAppResourcesDirectory(ResourceHandler.WEBAPP_RESOURCES_DIRECTORY_PARAM_NAME, "/resources"),
         WebAppContractsDirectory(ResourceHandler.WEBAPP_CONTRACTS_DIRECTORY_PARAM_NAME, "/contracts"),
         ExceptionTypesToIgnoreInLogging("com.sun.faces.exceptionTypesToIgnoreInLogging", ""),
+        CspPolicy(ResourceHandlerImpl.CSP_POLICY_PARAM_NAME, ResourceHandlerImpl.DEFAULT_CSP_POLICY),
         ;
 
         private final String defaultValue;
@@ -881,6 +883,7 @@ public class WebConfiguration {
         EnableDistributable("com.sun.faces.enableDistributable", false),
         EnableMissingResourceLibraryDetection("com.sun.faces.enableMissingResourceLibraryDetection", false),
         DisableIdUniquenessCheck("com.sun.faces.disableIdUniquenessCheck", false),
+        CspNonceEnabled(ResourceHandlerImpl.ENABLE_CSP_NONCE_PARAM_NAME, false),
         EnableTransitionTimeNoOpFlash("com.sun.faces.enableTransitionTimeNoOpFlash", false),
         ForceAlwaysWriteFlashCookie("com.sun.faces.forceAlwaysWriteFlashCookie", false),
         ViewRootPhaseListenerQueuesException(UIViewRoot.VIEWROOT_PHASE_LISTENER_QUEUES_EXCEPTIONS_PARAM_NAME, false),

@@ -93,6 +93,8 @@ public class GroupRenderer extends HtmlBasicRenderer {
             return;
         }
 
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
+
         // Close our span element if necessary
         ResponseWriter writer = context.getResponseWriter();
         if (divOrSpan(component)) {

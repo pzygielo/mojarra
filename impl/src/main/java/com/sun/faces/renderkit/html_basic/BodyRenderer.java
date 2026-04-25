@@ -79,6 +79,7 @@ public class BodyRenderer extends HtmlBasicRenderer {
             resource.encodeAll(context);
         }
         RenderKitUtils.renderUnhandledMessages(context);
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
         writer.endElement("body");
     }
 

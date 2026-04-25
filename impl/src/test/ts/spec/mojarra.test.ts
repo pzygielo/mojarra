@@ -131,6 +131,7 @@ function createForm(formId = "testForm"): HTMLFormElement {
 
 describe("mojarra namespace", () => {
     const EXPECTED_MEMBERS: Record<string, string> = {
+        ael: "function",
         dpf: "function",
         apf: "function",
         cljs: "function",

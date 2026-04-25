@@ -1587,6 +1587,174 @@ describe("faces.ajax.request: encodedURL", () => {
     });
 });
 
+// ---- response: CSP-compatible eval processing ----
+
+describe("faces.ajax.response: eval element (CSP)", () => {
+    let form: HTMLFormElement;
+    let button: HTMLButtonElement;
+
+    beforeEach(() => {
+        installMockXHR();
+        ({ form, button } = createAjaxForm());
+    });
+
+    afterEach(() => {
+        form?.remove();
+        uninstallMockXHR();
+    });
+
+    function successResponse(changes: string): string {
+        return `<?xml version="1.0" encoding="UTF-8"?><partial-response id=""><changes>${changes}</changes></partial-response>`;
+    }
+
+    test("eval element executes JavaScript from response", () => {
+        (window as unknown as Record<string, unknown>).__evalTest = undefined;
+
+        ajax().request(button, null);
+        const xml = successResponse('<eval><![CDATA[window.__evalTest = "executed"]]></eval>');
+        lastXHR().respond(200, "", xml);
+
+        expect((window as unknown as Record<string, unknown>).__evalTest).toBe("executed");
+        delete (window as unknown as Record<string, unknown>).__evalTest;
+    });
+
+    test("eval element executes via script element (CSP-compatible), not window.eval", () => {
+        const origEval = window.eval;
+        let evalCalled = false;
+        (window as unknown as Record<string, unknown>).eval = function(...args: unknown[]) {
+            evalCalled = true;
+            return origEval.apply(window, args as [string]);
+        };
+
+        (window as unknown as Record<string, unknown>).__evalCSP = undefined;
+
+        ajax().request(button, null);
+        const xml = successResponse('<eval><![CDATA[window.__evalCSP = "csp"]]></eval>');
+        lastXHR().respond(200, "", xml);
+
+        expect(evalCalled).toBe(false);
+        expect((window as unknown as Record<string, unknown>).__evalCSP).toBe("csp");
+
+        (window as unknown as Record<string, unknown>).eval = origEval;
+        delete (window as unknown as Record<string, unknown>).__evalCSP;
+    });
+
+    test("multiple eval elements execute in order", () => {
+        (window as unknown as Record<string, unknown>).__evalOrder = [];
+
+        ajax().request(button, null);
+        const xml = successResponse(
+            '<eval><![CDATA[window.__evalOrder.push(1)]]></eval>' +
+            '<eval><![CDATA[window.__evalOrder.push(2)]]></eval>' +
+            '<eval><![CDATA[window.__evalOrder.push(3)]]></eval>');
+        lastXHR().respond(200, "", xml);
+
+        expect((window as unknown as Record<string, unknown>).__evalOrder).toEqual([1, 2, 3]);
+        delete (window as unknown as Record<string, unknown>).__evalOrder;
+    });
+
+    test("update element containing inline script executes via CSP-compatible path", () => {
+        const target = document.createElement("div");
+        target.id = "scriptTarget";
+        document.body.appendChild(target);
+
+        (window as unknown as Record<string, unknown>).__scriptInUpdate = undefined;
+
+        ajax().request(button, null);
+        const xml = successResponse(
+            '<update id="scriptTarget"><![CDATA[<div id="scriptTarget">updated</div>' +
+            '<script type="text/javascript">window.__scriptInUpdate = "ran"</script>]]></update>');
+        lastXHR().respond(200, "", xml);
+
+        expect((window as unknown as Record<string, unknown>).__scriptInUpdate).toBe("ran");
+        delete (window as unknown as Record<string, unknown>).__scriptInUpdate;
+        document.getElementById("scriptTarget")?.remove();
+    });
+});
+
+// ---- response: CSP nonce propagation ----
+
+describe("faces.ajax.response: nonce propagation", () => {
+    let form: HTMLFormElement;
+    let button: HTMLButtonElement;
+    let facesScript: HTMLScriptElement;
+
+    beforeEach(() => {
+        installMockXHR();
+        ({ form, button } = createAjaxForm());
+
+        facesScript = document.createElement("script");
+        facesScript.src = "http://localhost/jakarta.faces.resource/faces.js?ln=jakarta.faces";
+        facesScript.nonce = "test-nonce-123";
+        document.head.appendChild(facesScript);
+    });
+
+    afterEach(() => {
+        form?.remove();
+        facesScript?.remove();
+        uninstallMockXHR();
+    });
+
+    function successResponse(changes: string): string {
+        return `<?xml version="1.0" encoding="UTF-8"?><partial-response id=""><changes>${changes}</changes></partial-response>`;
+    }
+
+    test("dynamically created script elements for eval receive nonce from faces.js script tag", () => {
+        const createdScripts: HTMLScriptElement[] = [];
+        const origCreate = document.createElement.bind(document);
+        document.createElement = function(tagName: string, options?: ElementCreationOptions) {
+            const el = origCreate(tagName, options);
+            if (tagName.toLowerCase() === "script") {
+                createdScripts.push(el as HTMLScriptElement);
+            }
+            return el;
+        } as typeof document.createElement;
+
+        (window as unknown as Record<string, unknown>).__nonceTest = undefined;
+
+        ajax().request(button, null);
+        const xml = successResponse('<eval><![CDATA[window.__nonceTest = "nonce"]]></eval>');
+        lastXHR().respond(200, "", xml);
+
+        document.createElement = origCreate;
+
+        const scriptsWithNonce = createdScripts.filter(s => s.nonce === "test-nonce-123");
+        expect(scriptsWithNonce.length).toBeGreaterThanOrEqual(1);
+
+        expect((window as unknown as Record<string, unknown>).__nonceTest).toBe("nonce");
+        delete (window as unknown as Record<string, unknown>).__nonceTest;
+    });
+
+    test("inline scripts in update elements receive nonce", () => {
+        const target = document.createElement("div");
+        target.id = "nonceTarget";
+        document.body.appendChild(target);
+
+        const createdScripts: HTMLScriptElement[] = [];
+        const origCreate = document.createElement.bind(document);
+        document.createElement = function(tagName: string, options?: ElementCreationOptions) {
+            const el = origCreate(tagName, options);
+            if (tagName.toLowerCase() === "script") {
+                createdScripts.push(el as HTMLScriptElement);
+            }
+            return el;
+        } as typeof document.createElement;
+
+        ajax().request(button, null);
+        const xml = successResponse(
+            '<update id="nonceTarget"><![CDATA[<div id="nonceTarget">updated</div>' +
+            '<script type="text/javascript">void(0)</script>]]></update>');
+        lastXHR().respond(200, "", xml);
+
+        document.createElement = origCreate;
+
+        const scriptsWithNonce = createdScripts.filter(s => s.nonce === "test-nonce-123");
+        expect(scriptsWithNonce.length).toBeGreaterThanOrEqual(1);
+
+        document.getElementById("nonceTarget")?.remove();
+    });
+});
+
 // ---- response function direct call validation ----
 
 describe("faces.ajax.response: direct call validation", () => {

@@ -24,11 +24,6 @@ import static java.lang.Boolean.TRUE;
 import java.io.IOException;
 import java.util.Iterator;
 
-import com.sun.faces.renderkit.Attribute;
-import com.sun.faces.renderkit.AttributeManager;
-import com.sun.faces.renderkit.RenderKitUtils;
-import com.sun.faces.util.RequestStateManager;
-
 import jakarta.faces.component.UIComponent;
 import jakarta.faces.component.UINamingContainer;
 import jakarta.faces.component.ValueHolder;
@@ -37,6 +32,11 @@ import jakarta.faces.context.ResponseWriter;
 import jakarta.faces.convert.Converter;
 import jakarta.faces.model.SelectItem;
 import jakarta.faces.model.SelectItemGroup;
+
+import com.sun.faces.renderkit.Attribute;
+import com.sun.faces.renderkit.AttributeManager;
+import com.sun.faces.renderkit.RenderKitUtils;
+import com.sun.faces.util.RequestStateManager;
 
 /**
  * <B>SelectManyCheckboxListRenderer</B> is a class that renders the current value of <code>UISelectMany</code> component
@@ -271,13 +271,13 @@ public class SelectManyCheckboxListRenderer extends MenuRenderer {
         // Apply HTML 4.x attributes specified on UISelectMany component to all
         // items in the list except styleClass and style which are rendered as
         // attributes of outer most table.
-        RenderKitUtils.renderPassThruAttributes(context, writer, component, ATTRIBUTES, getNonOnClickSelectBehaviors(component));
-
+        RenderKitUtils.renderPassThruAttributes(context, writer, component, idString, false, ATTRIBUTES, "click", "valueChange");
         RenderKitUtils.renderXHTMLStyleBooleanAttributes(writer, component);
 
-        RenderKitUtils.renderSelectOnclick(context, component, false);
-
         writer.endElement("input");
+
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, idString);
+
         writer.startElement("label", component);
         writer.writeAttribute("for", idString, "for");
 

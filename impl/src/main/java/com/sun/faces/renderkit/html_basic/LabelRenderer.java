@@ -130,6 +130,7 @@ public class LabelRenderer extends HtmlBasicInputRenderer {
             writer.endElement("label");
         }
 
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
     }
 
     // ------------------------------------------------------- Private Methods

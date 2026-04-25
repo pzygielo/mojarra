@@ -109,6 +109,7 @@ public class OutputLinkRenderer extends LinkRenderer {
             writer.endElement("a");
         }
 
+        RenderKitUtils.flushPendingBehaviorEventListeners(context, component, null);
     }
 
     @Override
