@@ -64,7 +64,7 @@ def JAVA_PREFIX_BY_JDK = [
 //   gfVersion      : GlassFish Maven coordinate version used by the TCK
 def BRANCH_CONFIG = [
     '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'   ],
-    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '17', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6' ],
+    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6' ],
     'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2' ],
 ]
 
@@ -124,7 +124,7 @@ pipeline {
         choice(name: 'JDK',             choices: ['', '11', '17', '21'],
                description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1, 17 for master).')
         choice(name: 'TCK_JDK',         choices: ['', '11', '17', '21'],
-               description: 'JDK used to RUN the TCK (the GlassFish container may need a newer JDK than the spec). Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1 and 21 for master).')
+               description: 'JDK used to RUN the TCK (the GlassFish container may need a newer JDK than the spec). Leave blank to auto-infer from BRANCH (17 for 4.0, 21 for 4.1 and master).')
         string(name: 'TCK_VERSION',     defaultValue: '',
                description: 'Leave blank to auto-infer from BRANCH.')
         string(name: 'GF_VERSION',      defaultValue: '',
