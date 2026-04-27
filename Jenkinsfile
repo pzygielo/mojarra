@@ -31,6 +31,15 @@
 // but does NOT publish — only CI flips the flag.
 //
 
+// JDK install root layout on Eclipse CI: /opt/tools/java/<prefix>/jdk-<N>/latest. Prefix is a
+// function of major version, not branch — kept here as a shared lookup so both the build JDK
+// (jdk) and the TCK JDK (tckJdk) can resolve their install path the same way.
+def JAVA_PREFIX_BY_JDK = [
+    '11': 'openjdk',
+    '17': 'openjdk',
+    '21': 'temurin',
+]
+
 // ---- Per-branch configuration ---------------------------------------------
 // Adding a new release line = one entry here.
 //
@@ -45,17 +54,19 @@
 //                    "master" maps to "5.0"). Used both as the path segment on
 //                    download.eclipse.org/jakartaee/faces/<here>/ AND as the required prefix for
 //                    RELEASE_VERSION (sanity check: must start with versionFamily + ".").
-//   jdk            : major JDK version on the agent (matches /opt/tools/java/<javaPrefix>/jdk-<jdk>/latest)
-//   javaPrefix     : openjdk | temurin (selects the JDK install root on the agent)
+//   jdk            : major JDK version used to build & install the impl (per Faces spec)
+//   tckJdk         : major JDK version used to run the TCK. Differs from jdk when the GlassFish
+//                    container needs a newer JDK than the spec — e.g. Faces 4.1 spec requires 17
+//                    but GlassFish 8 needs 21.
 //   apiBranch      : faces-repo branch for the standalone jakarta.faces-api jar (null pre-5.0).
 //                    Must match .gitmodules on that branch of mojarra.
 //   facesVersion   : -Dfaces.version passed to the TCK build
 //   tckVersion     : Faces TCK release version
 //   gfVersion      : GlassFish Maven coordinate version used by the TCK
 def BRANCH_CONFIG = [
-    '4.0'   : [ versionFamily: '4.0', jdk: '11', javaPrefix: 'openjdk', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'   ],
-    '4.1'   : [ versionFamily: '4.1', jdk: '17', javaPrefix: 'openjdk', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.1'    ],
-    'master': [ versionFamily: '5.0', jdk: '21', javaPrefix: 'temurin', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2' ],
+    '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'   ],
+    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.1'    ],
+    'master': [ versionFamily: '5.0', jdk: '21', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2' ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent on the same agent;
@@ -111,8 +122,10 @@ pipeline {
                description: 'Branch to release. master is currently 5.0.')
         string(name: 'RELEASE_VERSION', defaultValue: '',
                description: 'Leave blank to auto-infer from parent pom.xml (strips -SNAPSHOT). Must be a dotted-numeric GA version (e.g. 4.1.5); milestone/RC versions are not supported.')
-        string(name: 'JDK',             defaultValue: '',
-               description: 'Leave blank to auto-infer from BRANCH (11/17/21).')
+        choice(name: 'JDK',             choices: ['', '11', '17', '21'],
+               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1, 21 for master).')
+        choice(name: 'TCK_JDK',         choices: ['', '11', '17', '21'],
+               description: 'JDK used to RUN the TCK (the GlassFish container may need a newer JDK than the spec). Leave blank to auto-infer from BRANCH (11 for 4.0, 21 for 4.1 because GF 8 needs 21, 21 for master).')
         string(name: 'TCK_VERSION',     defaultValue: '',
                description: 'Leave blank to auto-infer from BRANCH.')
         string(name: 'GF_VERSION',      defaultValue: '',
@@ -150,13 +163,21 @@ pipeline {
                     if (cfg == null) error "Unknown BRANCH: ${params.BRANCH}"
 
                     env.RESOLVED_JDK         = params.JDK?.trim()         ?: cfg.jdk
+                    env.RESOLVED_TCK_JDK     = params.TCK_JDK?.trim()     ?: cfg.tckJdk
                     env.RESOLVED_TCK_VERSION = params.TCK_VERSION?.trim() ?: cfg.tckVersion
                     env.RESOLVED_GF_VERSION  = params.GF_VERSION?.trim()  ?: cfg.gfVersion
                     env.FACES_VERSION        = cfg.facesVersion
                     env.VERSION_FAMILY       = cfg.versionFamily
                     env.API_BRANCH           = cfg.apiBranch ?: ''
-                    env.JAVA_HOME            = "${env.TOOLS_PREFIX}/java/${cfg.javaPrefix}/jdk-${env.RESOLVED_JDK}/latest"
-                    env.PATH                 = "${env.MVN_HOME}/bin:${env.JAVA_HOME}/bin:${env.PATH}"
+                    if (!JAVA_PREFIX_BY_JDK.containsKey(env.RESOLVED_JDK)) {
+                        error "No JDK install prefix configured for JDK ${env.RESOLVED_JDK}. Update JAVA_PREFIX_BY_JDK at the top of Jenkinsfile."
+                    }
+                    if (!JAVA_PREFIX_BY_JDK.containsKey(env.RESOLVED_TCK_JDK)) {
+                        error "No JDK install prefix configured for TCK JDK ${env.RESOLVED_TCK_JDK}. Update JAVA_PREFIX_BY_JDK at the top of Jenkinsfile."
+                    }
+                    env.JAVA_HOME      = "${env.TOOLS_PREFIX}/java/${JAVA_PREFIX_BY_JDK[env.RESOLVED_JDK]}/jdk-${env.RESOLVED_JDK}/latest"
+                    env.TCK_JAVA_HOME  = "${env.TOOLS_PREFIX}/java/${JAVA_PREFIX_BY_JDK[env.RESOLVED_TCK_JDK]}/jdk-${env.RESOLVED_TCK_JDK}/latest"
+                    env.PATH           = "${env.MVN_HOME}/bin:${env.JAVA_HOME}/bin:${env.PATH}"
 
                     sh 'java -version && mvn -v'
                 }
@@ -243,9 +264,12 @@ pipeline {
                         echo "API snapshot: ${env.API_SNAPSHOT_VERSION} | API release: ${env.RESOLVED_API_VERSION} | Next: ${env.NEXT_API_VERSION}"
                     }
 
+                    def jdkLabel = (env.RESOLVED_JDK == env.RESOLVED_TCK_JDK)
+                        ? "JDK${env.RESOLVED_JDK}"
+                        : "JDK${env.RESOLVED_JDK}/TCK-JDK${env.RESOLVED_TCK_JDK}"
                     currentBuild.description = "${params.BRANCH} → ${env.RELEASE_VERSION}" +
                         ((env.SHOULD_BUILD_API == 'true') ? " + API ${env.RESOLVED_API_VERSION}" : ' (impl-only)') +
-                        " (JDK${env.RESOLVED_JDK}, GF ${env.RESOLVED_GF_VERSION}, TCK ${env.RESOLVED_TCK_VERSION})"
+                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, TCK ${env.RESOLVED_TCK_VERSION})"
                     echo "Snapshot: ${env.SNAPSHOT_VERSION} | Release: ${env.RELEASE_VERSION} | Next: ${env.NEXT_VERSION}"
                     if (env.SHOULD_BUILD_API == 'true') {
                         echo "Releasing impl AND API in the same reactor (jakarta.faces-api ${env.RESOLVED_API_VERSION})."
@@ -342,6 +366,11 @@ pipeline {
             steps {
                 sh '''#!/bin/bash -ex
                     set -o pipefail
+                    # The GlassFish container the TCK runs inside may need a different JDK from the
+                    # one used to build the impl (e.g. Faces 4.1 builds with 17, GF 8 needs 21).
+                    export JAVA_HOME="${TCK_JAVA_HOME}"
+                    export PATH="${JAVA_HOME}/bin:${PATH}"
+
                     rm -rf "faces-tck-${RESOLVED_TCK_VERSION}"
                     mkdir -p download
                     TCK_BUNDLE_NAME="jakarta-faces-tck-${RESOLVED_TCK_VERSION}"
@@ -388,7 +417,7 @@ pipeline {
 
                     {
                         echo "******************************************************"
-                        echo "Mojarra ${RELEASE_VERSION} on GlassFish ${RESOLVED_GF_VERSION} (JDK${RESOLVED_JDK})"
+                        echo "Mojarra ${RELEASE_VERSION} (built with JDK${RESOLVED_JDK}) on GlassFish ${RESOLVED_GF_VERSION} (TCK run with JDK${RESOLVED_TCK_JDK})"
                         if [ -n "${RESOLVED_API_VERSION:-}" ]; then
                             echo "jakarta.faces-api ${RESOLVED_API_VERSION}"
                         fi
