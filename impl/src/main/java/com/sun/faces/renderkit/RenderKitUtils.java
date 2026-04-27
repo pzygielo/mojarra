@@ -1754,6 +1754,7 @@ public class RenderKitUtils {
             context.getPartialViewContext().getEvalScripts().add(script.toString());
         }
         else {
+            renderFacesJsIfNecessary(context);
             renderScript(context, component, null, script.toString());
         }
     }
