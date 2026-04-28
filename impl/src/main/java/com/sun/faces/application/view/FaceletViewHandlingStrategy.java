@@ -42,7 +42,7 @@ import static jakarta.faces.FactoryFinder.VIEW_DECLARATION_LANGUAGE_FACTORY;
 import static jakarta.faces.application.ProjectStage.Development;
 import static jakarta.faces.application.Resource.COMPONENT_RESOURCE_KEY;
 import static jakarta.faces.application.StateManager.IS_BUILDING_INITIAL_STATE;
-import static jakarta.faces.application.StateManager.STATE_SAVING_METHOD_SERVER;
+import static jakarta.faces.application.StateManager.STATE_SAVING_METHOD_CLIENT;
 import static jakarta.faces.application.ViewHandler.CHARACTER_ENCODING_KEY;
 import static jakarta.faces.application.ViewHandler.DEFAULT_FACELETS_SUFFIX;
 import static jakarta.faces.application.ViewVisitOption.RETURN_AS_MINIMAL_IMPLICIT_OUTCOME;
@@ -91,6 +91,7 @@ import jakarta.faces.component.ActionSource;
 import jakarta.faces.component.Doctype;
 import jakarta.faces.component.EditableValueHolder;
 import jakarta.faces.component.UIComponent;
+import jakarta.faces.component.UIForm;
 import jakarta.faces.component.UIPanel;
 import jakarta.faces.component.UIViewRoot;
 import jakarta.faces.component.html.HtmlDoctype;
@@ -410,7 +411,7 @@ public class FaceletViewHandlingStrategy extends ViewHandlingStrategy {
              *
              * Note if you flag a view as transient then we won't acquire the session as you are stating it does not need one.
              */
-            if (isServerStateSaving() && !viewToRender.isTransient()) {
+            if (!viewToRender.isTransient() && extContext.getSession(false) == null && isServerStateSaving() && hasForm(ctx, viewToRender)) {
                 getSession(ctx);
             }
 
@@ -1834,11 +1835,7 @@ public class FaceletViewHandlingStrategy extends ViewHandlingStrategy {
      * @return true if we are, false otherwise.
      */
     private boolean isServerStateSaving() {
-        if (STATE_SAVING_METHOD_SERVER.equals(webConfig.getOptionValue(StateSavingMethod))) {
-            return true;
-        }
-
-        return false;
+        return !STATE_SAVING_METHOD_CLIENT.equalsIgnoreCase(webConfig.getOptionValue(StateSavingMethod));
     }
 
     /**
@@ -1854,6 +1851,25 @@ public class FaceletViewHandlingStrategy extends ViewHandlingStrategy {
         }
 
         return null;
+    }
+
+    /**
+     * @return true if the view contains at least one {@link UIForm}, in which case state will be written and a session
+     * is needed under server-side state saving.
+     */
+    private static boolean hasForm(FacesContext context, UIViewRoot viewRoot) {
+        if (viewRoot == null || viewRoot.getChildCount() == 0) {
+            return false;
+        }
+        boolean[] found = { false };
+        viewRoot.visitTree(VisitContext.createVisitContext(context), (visitContext, target) -> {
+            if (target instanceof UIForm) {
+                found[0] = true;
+                return VisitResult.COMPLETE;
+            }
+            return VisitResult.ACCEPT;
+        });
+        return found[0];
     }
 
     /**

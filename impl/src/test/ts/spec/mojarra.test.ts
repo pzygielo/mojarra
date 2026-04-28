@@ -688,7 +688,7 @@ describe("mojarra.l", () => {
 
         (moj().l as Function)(callback);
 
-        expect(spy).toHaveBeenCalledWith("load", callback, false);
+        expect(spy).toHaveBeenCalledWith("load", callback);
 
         spy.mockRestore();
         if (originalReadyState) {
