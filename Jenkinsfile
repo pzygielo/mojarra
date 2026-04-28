@@ -433,12 +433,30 @@ pipeline {
                         DEPS_DIR="${WORKSPACE}/.chrome-deps"
                         if [ ! -f "${DEPS_DIR}/.installed" ]; then
                             rm -rf "${DEPS_DIR}" && mkdir -p "${DEPS_DIR}/debs"
-                            ( cd "${DEPS_DIR}/debs" && apt-get download \
-                                libnspr4 libnss3 libxkbcommon0 libxcomposite1 libxdamage1 \
-                                libxrandr2 libxfixes3 libxshmfence1 libgbm1 libasound2 \
-                                libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libatspi2.0-0 \
-                                libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libexpat1 \
-                                libuuid1 )
+                            # Some packages were renamed with a 't64' suffix in Ubuntu 24.04
+                            # as part of the 64-bit time_t ABI transition (libasound2 ->
+                            # libasound2t64, libatk1.0-0 -> libatk1.0-0t64, etc.). Older
+                            # distros still use the unsuffixed names. Pick whichever variant
+                            # the agent's apt cache actually has.
+                            pick() {
+                                for name in "$@"; do
+                                    if apt-cache show "$name" >/dev/null 2>&1; then
+                                        echo "$name"; return 0
+                                    fi
+                                done
+                                echo "ERROR: none of the candidates [$*] exist in apt cache" >&2
+                                return 1
+                            }
+                            PKGS="libnspr4 libnss3 libxkbcommon0 libxcomposite1 libxdamage1 \
+                                  libxrandr2 libxfixes3 libxshmfence1 libgbm1 \
+                                  libpango-1.0-0 libpangocairo-1.0-0 libcairo2 \
+                                  libdrm2 libexpat1 libuuid1"
+                            PKGS="${PKGS} $(pick libasound2t64       libasound2)"
+                            PKGS="${PKGS} $(pick libatspi2.0-0t64    libatspi2.0-0)"
+                            PKGS="${PKGS} $(pick libatk1.0-0t64      libatk1.0-0)"
+                            PKGS="${PKGS} $(pick libatk-bridge2.0-0t64 libatk-bridge2.0-0)"
+                            PKGS="${PKGS} $(pick libcups2t64         libcups2)"
+                            ( cd "${DEPS_DIR}/debs" && apt-get download ${PKGS} )
                             for d in "${DEPS_DIR}"/debs/*.deb; do dpkg-deb -x "$d" "${DEPS_DIR}"; done
                             touch "${DEPS_DIR}/.installed"
                         fi
