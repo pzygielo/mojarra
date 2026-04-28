@@ -275,7 +275,9 @@
                             </includes>
                             <outputFilename>#{path}/faces.js</outputFilename>
                             <skipMerge>true</skipMerge>
-                            <closureLanguageOut>NO_TRANSPILE</closureLanguageOut>
+                            <!-- Transpile down to ES5 so the minified faces.js parses on HtmlUnit's bundled Rhino as used in 4.x TCK.
+                                 Rhino's effective compatibility is ES5-ish. This config is no longer used in 5.0 branch. -->
+                            <closureLanguageOut>ECMASCRIPT5</closureLanguageOut>
                             <closureEmitUseStrict>false</closureEmitUseStrict>
                         </configuration>
                     </execution>
