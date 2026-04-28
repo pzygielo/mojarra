@@ -61,13 +61,15 @@ In the example below we assume releasing **Mojarra 4.0.17**.
 
 Maintained in `BRANCH_CONFIG` at the top of the `Jenkinsfile`. Adding a new release line means adding one entry there. Current entries:
 
-| Branch   | Family | Build JDK | TCK JDK | API submodule branch | API version | TCK version | GlassFish |
-| -------- | ------ | --------- | ------- | -------------------- | ----------- | ----------- | --------- |
-| `4.0`    | 4.0    | 11        | 11      | — (API was bundled)  | 4.0.1       | 4.0.3       | 7.0.25    |
-| `4.1`    | 4.1    | 17        | 21      | — (API was bundled)  | 4.1.0       | 4.1.0       | 8.0.0-M6  |
-| `master` | 5.0    | 17        | 21      | `5.0` (in `faces/`)  | 5.0.0       | 5.0.0       | 9.0.0-M2  |
+| Branch   | Family | Build JDK | TCK JDK | API submodule branch | API version | TCK version | GlassFish | TCK CDP / Chrome    |
+| -------- | ------ | --------- | ------- | -------------------- | ----------- | ----------- | --------- | ------------------- |
+| `4.0`    | 4.0    | 11        | 11      | — (API was bundled)  | 4.0.1       | 4.0.3       | 7.0.25    | v108 (no CfT)       |
+| `4.1`    | 4.1    | 17        | 21      | — (API was bundled)  | 4.1.0       | 4.1.0       | 8.0.0-M6  | v124 → 124.0.6367.x |
+| `master` | 5.0    | 17        | 21      | `5.0` (in `faces/`)  | 5.0.0       | 5.0.0       | 9.0.0-M2  | v139 → 139.0.7258.x |
 
 API version is the value passed as `-Dfaces.version` to the TCK build (the published `jakarta.faces-api` jar version that the TCK compiles against). On 4.x the API was bundled with the impl, so this is just the GA on Maven Central. On 5.0+ it tracks the standalone `jakarta.faces-api` artifact — bump it together with the matching API release.
+
+The "TCK CDP / Chrome" column is informational only — it's the CDP major hardcoded into the published TCK zip's `ChromeDevtoolsDriver.java` and the Chrome major the bootstrap will resolve from Chrome-for-Testing's milestone JSON at runtime. The exact patch version follows whatever CfT currently lists for that milestone, so the table only shows the major. When a TCK release bumps its CDP import, no Jenkinsfile or `RELEASE.md` change is needed; the bootstrap auto-tracks. 4.0's `v108 (no CfT)` is the explicit "Chrome too old for Chrome-for-Testing" case — the bootstrap falls through to `-Dtest.selenium=false` and the BaseITNG suite self-skips.
 
 ## Troubleshooting
 
