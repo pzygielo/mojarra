@@ -399,7 +399,7 @@ pipeline {
                     # human-readable summary are deferred to the next stage so a TCK failure fails fast.
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} clean install \\
-                        -DskipOldTCK=true -Dtck.old.skip=true -Dtest.selenium=false \\
+                        -DskipOldTCK=true -Dtck.old.skip=true \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
@@ -430,7 +430,7 @@ pipeline {
 
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} org.apache.maven.plugins:maven-site-plugin:3.21.0:site \\
-                        -DskipOldTCK=true -Dtck.old.skip=true -Dtest.selenium=false \\
+                        -DskipOldTCK=true -Dtck.old.skip=true \\
                         -Dmaven.test.skip=true -DskipTests=true \\
                         -DskipAssembly=true -Pstaging \\
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
