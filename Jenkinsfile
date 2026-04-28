@@ -136,7 +136,7 @@ pipeline {
         string(name: 'GF_BUNDLE_URL',   defaultValue: '',
                description: 'Optional GlassFish zip URL override. If set, GF_VERSION must also be set to match.')
         string(name: 'CHROME_VERSION',  defaultValue: '',
-               description: 'Optional Chrome-for-Testing version override (e.g. 139.0.7258.155). Leave blank to auto-detect from the downloaded TCK zip (greps the CDP major out of ChromeDevtoolsDriver.java and resolves it via Chrome-for-Testing\\'s milestone JSON). Set to literal "none" to skip the Chrome install and force -Dtest.selenium=false. See https://googlechromelabs.github.io/chrome-for-testing/ for available builds.')
+               description: 'Optional Chrome-for-Testing version override (e.g. 139.0.7258.155). Leave blank to auto-detect from the downloaded TCK zip (greps the CDP major out of ChromeDevtoolsDriver.java and resolves it via the Chrome-for-Testing milestone JSON). Set to literal "none" to skip the Chrome install and force -Dtest.selenium=false. See https://googlechromelabs.github.io/chrome-for-testing/ for available builds.')
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release).')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
