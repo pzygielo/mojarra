@@ -409,6 +409,11 @@ pipeline {
                     # self-skip (otherwise they would all fail with SessionNotCreatedException
                     # at driver init). 4.0 currently uses this path because Chrome 108 (the CDP
                     # version baked into the 4.0 TCK) predates Chrome-for-Testing.
+                    #
+                    # Bootstrap output is intentionally quiet: ~125 transitive .debs make for
+                    # 250+ trace lines under set -x, none of which are useful when things work.
+                    # Trace is suppressed only for the bootstrap block (set +x ... set -x).
+                    set +x
                     SELENIUM_FLAG=""
                     if [ -n "${RESOLVED_CHROME_VERSION}" ]; then
                         CFT_BASE="https://storage.googleapis.com/chrome-for-testing-public/${RESOLVED_CHROME_VERSION}/linux64"
@@ -477,7 +482,11 @@ pipeline {
                             # sanity check below is the actual gate — if a critical lib is
                             # missing, that fails loud; otherwise an extra missing transitive .deb
                             # is harmless.
-                            ( cd "${DEPS_DIR}/debs" && apt-get download ${CLOSURE} || true )
+                            n_pkgs=$(echo ${CLOSURE} | wc -w)
+                            echo "[chrome-bootstrap] downloading ${n_pkgs} transitive .deb packages..."
+                            ( cd "${DEPS_DIR}/debs" && apt-get download -q=2 ${CLOSURE} >/dev/null 2>&1 || true )
+                            n_got=$(ls -1 "${DEPS_DIR}/debs"/*.deb 2>/dev/null | wc -l)
+                            echo "[chrome-bootstrap] extracting ${n_got} packages..."
                             for d in "${DEPS_DIR}"/debs/*.deb; do dpkg-deb -x "$d" "${DEPS_DIR}"; done
                             touch "${DEPS_DIR}/.installed"
                         fi
@@ -485,15 +494,28 @@ pipeline {
 
                         # Sanity-check both binaries before the TCK starts; a failure here
                         # surfaces any STILL-missing shared lib up front rather than buried in
-                        # a SessionNotCreatedException from inside surefire. Use ldd output as
-                        # a debug aid when chrome --version itself fails.
-                        ldd "${CHROME_DIR}/chrome-linux64/chrome" | grep -E "not found" || true
-                        chrome --version
-                        chromedriver --version
+                        # a SessionNotCreatedException from inside surefire. ldd is shown only
+                        # when something is unresolved, so the success path stays quiet.
+                        missing=$(ldd "${CHROME_DIR}/chrome-linux64/chrome" | grep "not found" || true)
+                        if [ -n "${missing}" ]; then
+                            echo "[chrome-bootstrap] ldd reports missing libs:"
+                            echo "${missing}"
+                        fi
+                        echo "[chrome-bootstrap] $(chrome --version) / $(chromedriver --version)"
+
+                        # Force Selenium to use OUR chromedriver instead of letting the bundled
+                        # Selenium Manager auto-download one. With Selenium 4.6+, ChromeDriver
+                        # ctor falls back to Selenium Manager when webdriver.chrome.driver is
+                        # unset, and Selenium Manager fetches latest stable (148) regardless of
+                        # the browserVersion hint, then refuses to drive our pinned Chrome 139.
+                        # webdriver.chrome.driver is consulted FIRST by ChromeDriverService and
+                        # short-circuits Selenium Manager entirely.
+                        SELENIUM_FLAG="-Dwebdriver.chrome.driver=${CHROME_DIR}/chromedriver-linux64/chromedriver"
                     else
-                        echo "RESOLVED_CHROME_VERSION is empty -> skipping Chrome install, BaseITNG tests will self-skip via -Dtest.selenium=false."
+                        echo "[chrome-bootstrap] RESOLVED_CHROME_VERSION is empty -> skipping Chrome install, BaseITNG tests will self-skip via -Dtest.selenium=false."
                         SELENIUM_FLAG="-Dtest.selenium=false"
                     fi
+                    set -x
 
                     rm -rf "faces-tck-${RESOLVED_TCK_VERSION}"
                     mkdir -p download
