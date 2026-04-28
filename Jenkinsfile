@@ -510,6 +510,21 @@ pipeline {
                         # the browserVersion hint, then refuses to drive our pinned Chrome 139.
                         # webdriver.chrome.driver is consulted FIRST by ChromeDriverService and
                         # short-circuits Selenium Manager entirely.
+                        #
+                        # Why JAVA_TOOL_OPTIONS instead of -D on the mvn command line: surefire
+                        # forks a separate JVM for tests and does not, by default, propagate
+                        # arbitrary -D flags from its parent. JAVA_TOOL_OPTIONS is honored by
+                        # every JVM in the process tree (parent mvn AND forked surefire/test
+                        # JVM) without configuration. The K8s pod presets it to empty string
+                        # (see pod yaml), which our export overrides cleanly.
+                        export JAVA_TOOL_OPTIONS="-Dwebdriver.chrome.driver=${CHROME_DIR}/chromedriver-linux64/chromedriver"
+
+                        # Belt-and-braces: wipe Selenium Manager's driver cache. If a previous
+                        # build let SM auto-download a different chromedriver version, that
+                        # binary lives on the /home/jenkins persistent volume and persists across
+                        # builds, so the next run could still prefer it on some code paths.
+                        rm -rf "${HOME}/.cache/selenium"
+
                         SELENIUM_FLAG="-Dwebdriver.chrome.driver=${CHROME_DIR}/chromedriver-linux64/chromedriver"
                     else
                         echo "[chrome-bootstrap] RESOLVED_CHROME_VERSION is empty -> skipping Chrome install, BaseITNG tests will self-skip via -Dtest.selenium=false."
