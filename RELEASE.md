@@ -19,7 +19,7 @@ In the example below we assume releasing **Mojarra 4.0.17**.
 
 1. Sanity-check the version isn't already in [Maven Central](https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/) — if it is, bump the version.
 2. Go to [Mojarra CI](https://ci.eclipse.org/mojarra/) and [log in](https://ci.eclipse.org/mojarra/login?from=%2Fmojarra%2F).
-3. Open the Mojarra release pipeline job and click **Build with parameters**:
+3. Open the [`mojarra-release`](https://ci.eclipse.org/mojarra/job/mojarra-release/) job and click **Build with parameters**:
    - `BRANCH` = `4.0` (choices: `4.0`, `4.1`, `master`; `master` currently maps to 5.0)
    - `RELEASE_VERSION` = `4.0.17` *(or leave blank to auto-infer from `pom.xml` by stripping `-SNAPSHOT`)*
    - `JDK` = blank *(auto-infers per branch: 11 for 4.0, 17 for 4.1 and master)*
