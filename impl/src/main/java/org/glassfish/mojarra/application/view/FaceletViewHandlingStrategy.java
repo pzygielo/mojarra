@@ -62,6 +62,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
@@ -92,6 +93,7 @@ import jakarta.faces.component.UIPanel;
 import jakarta.faces.component.UIViewRoot;
 import jakarta.faces.component.html.HtmlDoctype;
 import jakarta.faces.component.visit.VisitContext;
+import jakarta.faces.component.visit.VisitHint;
 import jakarta.faces.component.visit.VisitResult;
 import jakarta.faces.context.ExternalContext;
 import jakarta.faces.context.FacesContext;
@@ -1851,7 +1853,8 @@ public class FaceletViewHandlingStrategy extends ViewHandlingStrategy {
             return false;
         }
         boolean[] found = { false };
-        viewRoot.visitTree(VisitContext.createVisitContext(context), (visitContext, target) -> {
+        VisitContext visitContext = VisitContext.createVisitContext(context, null, EnumSet.of(VisitHint.SKIP_ITERATION));
+        viewRoot.visitTree(visitContext, (vc, target) -> {
             if (target instanceof UIForm) {
                 found[0] = true;
                 return VisitResult.COMPLETE;
