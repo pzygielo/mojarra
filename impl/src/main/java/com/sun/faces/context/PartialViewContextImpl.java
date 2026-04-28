@@ -300,6 +300,7 @@ public class PartialViewContextImpl extends PartialViewContext {
                 if (isRenderAll()) {
                     renderAll(ctx, viewRoot);
                     renderState(ctx);
+                    renderEvalScripts(ctx);
                     doFlashPostPhaseActions(ctx);
                     writer.endDocument();
                     return;

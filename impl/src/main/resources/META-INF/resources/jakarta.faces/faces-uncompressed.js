@@ -117,10 +117,6 @@ if ( !( (window.faces && window.faces.specversion && window.faces.specversion >=
         return inputElementName in form ? form[inputElementName] : getElementByName(form,inputElementName);
     }
 
-    /**
-     * append a new pair of parameter=value to a query string
-     * @ignore
-     */
 
     /**
      * return true if one of the dom elements contains
@@ -355,12 +351,19 @@ if ( !( (window.faces && window.faces.specversion && window.faces.specversion >=
         };
 
         /**
-         * Remove all the portion of code matching the script pattern from the passed string
+         * Remove all the portion of code matching the script pattern from the passed string,
+         * preserving scripts whose type is set to something other than text/javascript.
          * @param html a String containing a portion of html
          * @ignore
          */
         const removeScripts = function removeScripts(html) {
-            return html.replace(/<script[^>]*type="text\/javascript"[^>]*>([\S\s]*?)<\/script>/igm, EMPTY);
+            return html.replace(/<script[^>]*>([\S\s]*?)<\/script>/igm, (match) => {
+                const type = match.match(TAG_ATTRIBUTE_TYPE_REGEX);
+                if (!!type && type[1] !== "text/javascript") {
+                    return match; // keep non-text/javascript scripts
+                }
+                return EMPTY;
+            });
         };
 
         /**
@@ -3222,17 +3225,9 @@ mojarra.l = function l(l) {
     if (document.readyState === "complete") {
         setTimeout(l);
     }
-    else if (window.addEventListener) {
-        window.addEventListener("load", l, false);
-    }
-    else if (typeof window.onload === "function") {
-        const oldListener = window.onload;
-        window.onload = function() { oldListener(); l(); };
-    }
     else {
-        window.onload = l;
+        window.addEventListener("load", l);
     }
-
 };
 
 /**
