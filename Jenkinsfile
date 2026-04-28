@@ -62,10 +62,25 @@ def JAVA_PREFIX_BY_JDK = [
 //   facesVersion   : -Dfaces.version passed to the TCK build
 //   tckVersion     : Faces TCK release version
 //   gfVersion      : GlassFish Maven coordinate version used by the TCK
+//   chromeVersion  : Chrome-for-Testing build to install on the Eclipse CI agent (which has no
+//                    pre-installed browser) so that the TCK's Selenium-driven tests (anything
+//                    extending BaseITNG, gated on -Dtest.selenium=true → pom default) can run.
+//                    Must be CDP-compatible with the Selenium import baked into the TCK util's
+//                    ChromeDevtoolsDriver for that branch:
+//                       4.0.x  → tck util imports devtools.v108  → ideally Chrome ~108
+//                       master → tck util imports devtools.v139  → Chrome 139
+//                       5.0    → tck util imports devtools.v139  → Chrome 139
+//                    Set to null/empty to skip the Chrome bootstrap and force HtmlUnit-only via
+//                    -Dtest.selenium=false. This is the right choice for 4.0 because Chrome 108
+//                    predates Chrome-for-Testing (CfT starts at Chrome ~115), so we cannot
+//                    install a CDP-matching browser anyway, and Selenium 4.7.2's CDP fudge
+//                    factor across 7+ majors is not reliable. 4.0.3 was originally certified
+//                    HtmlUnit-only; preserving that.
+//                    Available URLs: https://googlechromelabs.github.io/chrome-for-testing/
 def BRANCH_CONFIG = [
-    '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'   ],
-    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6' ],
-    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2' ],
+    '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'  , chromeVersion: null               ],
+    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', chromeVersion: '139.0.7258.155'   ],
+    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', chromeVersion: '139.0.7258.155'   ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent on the same agent;
@@ -131,6 +146,8 @@ pipeline {
                description: 'Leave blank to auto-infer from BRANCH. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
         string(name: 'GF_BUNDLE_URL',   defaultValue: '',
                description: 'Optional GlassFish zip URL override. If set, GF_VERSION must also be set to match.')
+        string(name: 'CHROME_VERSION',  defaultValue: '',
+               description: 'Optional Chrome-for-Testing version override (e.g. 139.0.7258.155). Leave blank to auto-infer from BRANCH. Set to literal "none" to skip the Chrome install and run HtmlUnit-only tests via -Dtest.selenium=false. See https://googlechromelabs.github.io/chrome-for-testing/ for available builds.')
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release).')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
@@ -165,6 +182,9 @@ pipeline {
                     env.RESOLVED_TCK_JDK     = params.TCK_JDK?.trim()     ?: cfg.tckJdk
                     env.RESOLVED_TCK_VERSION = params.TCK_VERSION?.trim() ?: cfg.tckVersion
                     env.RESOLVED_GF_VERSION  = params.GF_VERSION?.trim()  ?: cfg.gfVersion
+                    def chromeOverride = params.CHROME_VERSION?.trim()
+                    env.RESOLVED_CHROME_VERSION = (chromeOverride == 'none') ? '' :
+                                                  (chromeOverride ?: (cfg.chromeVersion ?: ''))
                     env.FACES_VERSION        = cfg.facesVersion
                     env.VERSION_FAMILY       = cfg.versionFamily
                     env.API_BRANCH           = cfg.apiBranch ?: ''
@@ -379,6 +399,40 @@ pipeline {
                     export JAVA_HOME="${TCK_JAVA_HOME}"
                     export PATH="${JAVA_HOME}/bin:${PATH}"
 
+                    # Chrome-for-Testing bootstrap. The Faces TCK drives modern spec tests
+                    # (anything extending BaseITNG, gated on -Dtest.selenium=true) through
+                    # Selenium + ChromeDriver. Eclipse CI agents do not ship Chrome, so we pull
+                    # a pinned Chrome-for-Testing build into the workspace and prepend it to PATH.
+                    #
+                    # When RESOLVED_CHROME_VERSION is empty, no Chrome is installed and
+                    # SELENIUM_FLAG is set to -Dtest.selenium=false so all BaseITNG tests
+                    # self-skip (otherwise they would all fail with SessionNotCreatedException
+                    # at driver init). 4.0 currently uses this path because Chrome 108 (the CDP
+                    # version baked into the 4.0 TCK) predates Chrome-for-Testing.
+                    SELENIUM_FLAG=""
+                    if [ -n "${RESOLVED_CHROME_VERSION}" ]; then
+                        CFT_BASE="https://storage.googleapis.com/chrome-for-testing-public/${RESOLVED_CHROME_VERSION}/linux64"
+                        CHROME_DIR="${WORKSPACE}/.chrome-${RESOLVED_CHROME_VERSION}"
+                        if [ ! -x "${CHROME_DIR}/chrome-linux64/chrome" ] || [ ! -x "${CHROME_DIR}/chromedriver-linux64/chromedriver" ]; then
+                            rm -rf "${CHROME_DIR}" && mkdir -p "${CHROME_DIR}"
+                            ( cd "${CHROME_DIR}" && \
+                              wget -q "${CFT_BASE}/chrome-linux64.zip" && \
+                              wget -q "${CFT_BASE}/chromedriver-linux64.zip" && \
+                              unzip -q chrome-linux64.zip && \
+                              unzip -q chromedriver-linux64.zip )
+                        fi
+                        export PATH="${CHROME_DIR}/chrome-linux64:${CHROME_DIR}/chromedriver-linux64:${PATH}"
+                        # Sanity-check both binaries before the TCK starts; a failure here
+                        # surfaces missing shared libs (libnss3, libxkbcommon0, libgbm1,
+                        # libasound2, ...) up front rather than buried in a
+                        # SessionNotCreatedException from inside surefire.
+                        chrome --version
+                        chromedriver --version
+                    else
+                        echo "RESOLVED_CHROME_VERSION is empty -> skipping Chrome install, BaseITNG tests will self-skip via -Dtest.selenium=false."
+                        SELENIUM_FLAG="-Dtest.selenium=false"
+                    fi
+
                     rm -rf "faces-tck-${RESOLVED_TCK_VERSION}"
                     mkdir -p download
                     TCK_BUNDLE_NAME="jakarta-faces-tck-${RESOLVED_TCK_VERSION}"
@@ -399,7 +453,7 @@ pipeline {
                     # human-readable summary are deferred to the next stage so a TCK failure fails fast.
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} clean install \\
-                        -DskipOldTCK=true -Dtck.old.skip=true \\
+                        -DskipOldTCK=true -Dtck.old.skip=true ${SELENIUM_FLAG} \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
