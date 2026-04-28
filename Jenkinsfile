@@ -437,26 +437,47 @@ pipeline {
                             # as part of the 64-bit time_t ABI transition (libasound2 ->
                             # libasound2t64, libatk1.0-0 -> libatk1.0-0t64, etc.). Older
                             # distros still use the unsuffixed names. Pick whichever variant
-                            # the agent's apt cache actually has.
+                            # actually has an installable candidate version. Note: probing
+                            # via apt-cache show is wrong here — the transitional dummy
+                            # package still has metadata but no candidate, so we must use
+                            # apt-cache policy and reject Candidate: (none).
                             pick() {
                                 for name in "$@"; do
-                                    if apt-cache show "$name" >/dev/null 2>&1; then
+                                    cand=$(apt-cache policy "$name" 2>/dev/null \
+                                           | awk "/Candidate:/ {print \\$2}")
+                                    if [ -n "$cand" ] && [ "$cand" != "(none)" ]; then
                                         echo "$name"; return 0
                                     fi
                                 done
-                                echo "ERROR: none of the candidates [$*] exist in apt cache" >&2
+                                echo "ERROR: none of the candidates [$*] have an installable version" >&2
                                 return 1
                             }
-                            PKGS="libnspr4 libnss3 libxkbcommon0 libxcomposite1 libxdamage1 \
-                                  libxrandr2 libxfixes3 libxshmfence1 libgbm1 \
-                                  libpango-1.0-0 libpangocairo-1.0-0 libcairo2 \
-                                  libdrm2 libexpat1 libuuid1"
-                            PKGS="${PKGS} $(pick libasound2t64       libasound2)"
-                            PKGS="${PKGS} $(pick libatspi2.0-0t64    libatspi2.0-0)"
-                            PKGS="${PKGS} $(pick libatk1.0-0t64      libatk1.0-0)"
-                            PKGS="${PKGS} $(pick libatk-bridge2.0-0t64 libatk-bridge2.0-0)"
-                            PKGS="${PKGS} $(pick libcups2t64         libcups2)"
-                            ( cd "${DEPS_DIR}/debs" && apt-get download ${PKGS} )
+                            DIRECT="libnspr4 libnss3 libxkbcommon0 libxcomposite1 libxdamage1 \
+                                    libxrandr2 libxfixes3 libxshmfence1 libgbm1 \
+                                    libpango-1.0-0 libpangocairo-1.0-0 libcairo2 \
+                                    libdrm2 libexpat1 libuuid1"
+                            DIRECT="${DIRECT} $(pick libasound2t64       libasound2)"
+                            DIRECT="${DIRECT} $(pick libatspi2.0-0t64    libatspi2.0-0)"
+                            DIRECT="${DIRECT} $(pick libatk1.0-0t64      libatk1.0-0)"
+                            DIRECT="${DIRECT} $(pick libatk-bridge2.0-0t64 libatk-bridge2.0-0)"
+                            DIRECT="${DIRECT} $(pick libcups2t64         libcups2)"
+
+                            # apt-get download fetches ONLY the listed packages, not their
+                            # Depends. Chrome's actual runtime closure (libxcb1, libx11-6,
+                            # libfontconfig1, libfreetype6, ...) is reached transitively. Use
+                            # apt-cache depends --recurse to expand to the full closure
+                            # (~125 packages, ~125 MB on Ubuntu 24.04 noble).
+                            CLOSURE=$(apt-cache depends --recurse \
+                                --no-recommends --no-suggests --no-conflicts \
+                                --no-breaks --no-replaces --no-enhances ${DIRECT} \
+                                | grep -v "[<>:]" | grep -v "^$" | sort -u | tr "\\n" " ")
+
+                            # Tolerate per-package 404s from stale mirror state (security.ubuntu
+                            # .com sometimes drops a point version mid-day). The chrome --version
+                            # sanity check below is the actual gate — if a critical lib is
+                            # missing, that fails loud; otherwise an extra missing transitive .deb
+                            # is harmless.
+                            ( cd "${DEPS_DIR}/debs" && apt-get download ${CLOSURE} || true )
                             for d in "${DEPS_DIR}"/debs/*.deb; do dpkg-deb -x "$d" "${DEPS_DIR}"; done
                             touch "${DEPS_DIR}/.installed"
                         fi
