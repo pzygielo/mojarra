@@ -400,6 +400,20 @@ pipeline {
                     wget -q "${TCK_URL}" -O "download/${TCK_BUNDLE_NAME}.zip"
                     unzip -q -o "download/${TCK_BUNDLE_NAME}.zip"
 
+                    # In-place fix for an upstream TCK packaging typo: tck/faces23/converter
+                    # /pom.xml declares <finalName>test-faces23-ajax</finalName> (copy-pasted
+                    # from tck/faces23/ajax). When both modules run in the same reactor against
+                    # the same GlassFish, the converter's deploy collides with the ajax module's
+                    # still-registered app of the same name and Issue4070IT fails. Drop this
+                    # patch once an upstream-fixed TCK zip ships and BRANCH_CONFIG.tckVersion
+                    # is bumped past it. -i.bak is sed BSD/GNU portable; .bak suffix is
+                    # discarded with the workspace at end of build.
+                    CONVERTER_POM="${TCK_BUNDLE_DIR}/tck/faces23/converter/pom.xml"
+                    if [ -f "${CONVERTER_POM}" ] && grep -q "<finalName>test-faces23-ajax</finalName>" "${CONVERTER_POM}"; then
+                        sed -i.bak 's|<finalName>test-faces23-ajax</finalName>|<finalName>test-faces23-converter</finalName>|' "${CONVERTER_POM}"
+                        echo "[tck-patch] fixed finalName typo in ${CONVERTER_POM}"
+                    fi
+
                     # Chrome-for-Testing bootstrap. Eclipse CI agents ship no browser, so for
                     # BaseITNG tests (gated on -Dtest.selenium=true, pom default) we install
                     # Chrome into the workspace and let the TCK's WebDriverManager fetch a
