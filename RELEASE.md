@@ -19,29 +19,30 @@ In the example below we assume releasing **Mojarra 4.0.17**.
 
 1. Sanity-check the version isn't already in [Maven Central](https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/) — if it is, bump the version.
 2. Go to [Mojarra CI](https://ci.eclipse.org/mojarra/) and [log in](https://ci.eclipse.org/mojarra/login?from=%2Fmojarra%2F).
-3. Open the [`mojarra-release`](https://ci.eclipse.org/mojarra/job/mojarra-release/) job and click **Build with parameters**:
+3. Open the [`mojarra-release`](https://ci.eclipse.org/mojarra/job/mojarra-release/) job and click **Build with parameters**. For a normal release set only `BRANCH`; every other parameter can be left at its default and is auto-inferred:
    - `BRANCH` = `4.0` (choices: `4.0`, `4.1`, `master`; `master` currently maps to 5.0)
-   - `RELEASE_VERSION` = `4.0.17` *(or leave blank to auto-infer from `pom.xml` by stripping `-SNAPSHOT`)*
-   - `JDK` = blank *(auto-infers per branch: 11 for 4.0, 17 for 4.1 and master)*
-   - `TCK_JDK` = blank *(auto-infers: 11 for 4.0, 21 for 4.1 and master — the GlassFish container can need a newer JDK than the spec itself)*
-   - `TCK_VERSION`, `GF_VERSION` = blank *(auto-inferred per branch)*
-   - `GF_BUNDLE_URL` = blank *(set only when overriding the GlassFish zip; if set, also set `GF_VERSION` to match the artifact version inside the zip)*
-   - `API_RELEASE_VERSION` = blank *(5.0+ only; auto-inferred from `faces/api/pom.xml`. Ignored when `impl/pom.xml` already pins `jakarta.faces-api` to a GA version — that means an impl-only patch release and no new API artifact is cut)*
-   - `RUN_TCK` = `true`
-   - `DRY_RUN` = `false` *(set `true` to do everything except Maven Central deploy and GitHub push — useful for rehearsals; locally installs the artifacts and runs the TCK against them)*
-   - `OVERWRITE` = `false` *(set `true` only if you need to replace an existing release branch / tag on origin — e.g. retrying after a failed run)*
-4. Click **Build**.
-5. Wait for the run to finish. The build description shows a one-line summary, e.g. `4.0 → 4.0.17 (impl-only) (JDK11, GF 7.0.25, TCK 4.0.3)`.
-6. On success, verify:
+4. *(Optional)* In case you wish to fine-tune the run, override one or more of:
+   - `RELEASE_VERSION` — e.g. `4.0.17`. Default: stripped from `pom.xml`'s top-level version (`-SNAPSHOT` removed).
+   - `JDK` — build JDK. Default: 11 for 4.0, 17 for 4.1 and master.
+   - `TCK_JDK` — JDK that runs the TCK (the GlassFish container can need a newer one than the spec). Default: 11 for 4.0, 21 for 4.1 and master.
+   - `TCK_VERSION`, `GF_VERSION` — TCK and GlassFish coordinate versions. Default: per-branch (see table below).
+   - `GF_BUNDLE_URL` — alternative GlassFish zip URL. If set, also set `GF_VERSION` to match the artifact version inside the zip.
+   - `API_RELEASE_VERSION` — 5.0+ only. Default: stripped from `faces/api/pom.xml`. Ignored when `impl/pom.xml` already pins `jakarta.faces-api` to a GA version (impl-only patch release, no new API artifact cut).
+   - `RUN_TCK` — uncheck to skip the TCK stage. Default: checked.
+   - `DRY_RUN` — check to do everything except Maven Central deploy and GitHub push (useful for rehearsals; locally installs the artifacts and runs the TCK against them). Default: unchecked.
+   - `OVERWRITE` — check only if you need to replace an existing release branch / tag on origin (e.g. retrying after a failed run). Default: unchecked.
+5. Click **Build**.
+6. Wait for the run to finish. The build description shows a one-line summary, e.g. `4.0 → 4.0.17 (impl-only) (JDK11, GF 7.0.25, TCK 4.0.3)`.
+7. On success, verify:
    - Artifact in [Maven Central](https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/) (may take up to an hour to surface).
    - Release branch `4.0.17` and tag `4.0.17-RELEASE` on [GitHub](https://github.com/eclipse-ee4j/mojarra/branches/active).
    - On 5.0+ releases that also cut the API: matching branch / tag in [jakartaee/faces](https://github.com/jakartaee/faces) for the `jakarta.faces-api` version.
-7. Open a PR to merge the `4.0.17` release branch back into `4.0`, then delete the release branch after merge.
-8. Manage the [milestones](https://github.com/eclipse-ee4j/mojarra/milestones) page:
+8. Open a PR to merge the `4.0.17` release branch back into `4.0`, then delete the release branch after merge.
+9. Manage the [milestones](https://github.com/eclipse-ee4j/mojarra/milestones) page:
    - make sure all issues / PRs are linked to the proper milestone
    - close milestones that were just released
    - create new milestones for upcoming releases
-9. Draft a new [GitHub Release](https://github.com/eclipse-ee4j/mojarra/releases/new):
+10. Draft a new [GitHub Release](https://github.com/eclipse-ee4j/mojarra/releases/new):
    - **Choose a tag** — pick the just-created `4.0.17-RELEASE` from the dropdown.
    - **Target** — `4.0` (the branch the tag lives on).
    - **Release title** — `4.0.17`.
