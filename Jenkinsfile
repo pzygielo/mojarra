@@ -117,7 +117,7 @@ pipeline {
     agent any
 
     parameters {
-        choice(name: 'BRANCH',          choices: ['4.0', '4.1', 'master'],
+        choice(name: 'BRANCH',          choices: ['4.1', '4.0', 'master'],
                description: 'Branch to release. master is currently 5.0.')
         string(name: 'RELEASE_VERSION', defaultValue: '',
                description: 'Leave blank to auto-infer from parent pom.xml (strips -SNAPSHOT). Must be a dotted-numeric GA version (e.g. 4.1.5); milestone/RC versions are not supported.')
@@ -223,15 +223,6 @@ pipeline {
                     env.NEXT_VERSION   = bumpLastComponent(env.RELEASE_VERSION) + '-SNAPSHOT'
                     env.RELEASE_TAG    = "${env.RELEASE_VERSION}-RELEASE"
                     env.RELEASE_BRANCH = env.RELEASE_VERSION
-
-                    // Fallback for the CSP backport in Mojarra 4.0.17+ / 4.1.8+ (#5606): a handful of TCK ITs
-                    // assume inline event handlers that no longer hold once mojarra.ael attaches them. The
-                    // TCK pom's `compute-csp-backport-flags` (in profile glassfish-ci-managed) auto-skips
-                    // them based on -Dmojarra.version, but the released TCK zips (4.0.3 / 4.1.0) predate
-                    // that script and won't be re-cut. Reproduce the same exclusion here so the impl release
-                    // works against the existing TCK zips. If a future TCK ships with the script, our
-                    // pre-set `it.test` makes the script's `!containsKey('it.test')` guard a no-op — safe.
-                    env.TCK_IT_TEST_FLAGS = cspBackportItTestFlags(env.RELEASE_VERSION)
 
                     // Auto-infer SHOULD_BUILD_API from impl/pom.xml's jakarta.faces-api dep version.
                     // Rule: if the dep is a -SNAPSHOT, the API is unreleased relative to this impl release
@@ -403,7 +394,6 @@ pipeline {
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${FACES_VERSION}" \\
-                        ${TCK_IT_TEST_FLAGS} \\
                         surefire-report:failsafe-report-only -Daggregate=true \\
                         | tee "${WORKSPACE}/run.log"
 
@@ -414,8 +404,7 @@ pipeline {
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
                         -Dmojarra.version="${RELEASE_VERSION}" \\
-                        -Dfaces.version="${FACES_VERSION}" \\
-                        ${TCK_IT_TEST_FLAGS}
+                        -Dfaces.version="${FACES_VERSION}"
 
                     cd "${WORKSPACE}"
                     REPORT="${TCK_BUNDLE_DIR}/tck/target/site/failsafe-report.html"
@@ -554,22 +543,6 @@ def requireGaVersion(String paramName, String version, String expectedPrefix) {
     if (expectedPrefix != null && !version.startsWith(expectedPrefix + '.')) {
         error "${paramName} '${version}' does not match expected prefix '${expectedPrefix}.'."
     }
-}
-
-// Mirror of the TCK pom's `compute-csp-backport-flags` script (faces/tck/pom.xml, in profile
-// glassfish-ci-managed). Returns the `-Dit.test=... -Dfailsafe.failIfNoSpecifiedTests=false`
-// flags string when `version` falls in the CSP-backport range (Mojarra 4.0.17+ or 4.1.8+),
-// or "" otherwise. See env.TCK_IT_TEST_FLAGS for context.
-def cspBackportItTestFlags(String version) {
-    def m = (version =~ /^(\d+)\.(\d+)\.(\d+)$/)
-    if (!m.matches()) return ''
-    def maj = m[0][1].toInteger()
-    def min = m[0][2].toInteger()
-    def inc = m[0][3].toInteger()
-    if ((maj == 4 && min == 0 && inc >= 17) || (maj == 4 && min == 1 && inc >= 8)) {
-        return '-Dit.test=**/*IT.java,!**/Issue2439IT.java,!**/Issue2674IT.java,!**/Issue4331IT.java,!**/Spec1238IT.java,!**/CommandLinkTestsIT.java -Dfailsafe.failIfNoSpecifiedTests=false'
-    }
-    return ''
 }
 
 // Read impl/pom.xml's <dependency> block for jakarta.faces:jakarta.faces-api and return its <version>
