@@ -6,10 +6,11 @@ It does, in one run:
 
 1. **Prepare** — checkout, JDK selection, version resolution (impl, and on 5.0+ also `jakarta.faces-api` via the `faces/` submodule), CSP-backport TCK exclusion fallback for 4.0.17+ / 4.1.8+ (mirrors `compute-csp-backport-flags` in the TCK pom for the existing TCK zips that predate the script).
 2. **Build & install** — single Maven reactor (`-pl impl -am`); on 5.0+ adds `-Papi` to also build `jakarta.faces-api` from the submodule. Tags are created locally; pushes happen later.
-3. **TCK** — downloads the published TCK zip from `download.eclipse.org/jakartaee/faces/<family>/`, runs it against the locally-installed impl, fails the build on any TCK failure or error.
-4. **Deploy to Maven Central** *(skipped on `DRY_RUN`)* — `mvn deploy -Dcentral.autoPublish=true`, so the bundle auto-publishes on success rather than parking in the Portal staging area.
-5. **Bump to next snapshot** — `versions:set` to the next `-SNAPSHOT` and commit on the release branch (and the `faces/` submodule on 5.0+).
-6. **Publish to GitHub** *(skipped on `DRY_RUN`)* — push the release branch, the release tag, and (on 5.0+) the same for the `jakarta.faces-api` submodule.
+3. **TCK** — downloads the published TCK zip from `download.eclipse.org/jakartaee/faces/<family>/`, runs it against the locally-installed impl, fails the build on any TCK failure or error. Archives `run.log`.
+4. **TCK report** — runs `maven-site-plugin:site` against the just-completed TCK reactor to render `failsafe-report.html`, then parses it into the human-readable `summary.txt` (passed/failed/errors counts, SHAs of TCK zip and the produced `jakarta.faces.jar`, JDK and OS info). Split out from the TCK stage so a TCK failure fails fast without spending minutes on report rendering.
+5. **Deploy to Maven Central** *(skipped on `DRY_RUN`)* — `mvn deploy -Dcentral.autoPublish=true`, so the bundle auto-publishes on success rather than parking in the Portal staging area.
+6. **Bump to next snapshot** — `versions:set` to the next `-SNAPSHOT` and commit on the release branch (and the `faces/` submodule on 5.0+).
+7. **Publish to GitHub** *(skipped on `DRY_RUN`)* — push the release branch, the release tag, and (on 5.0+) the same for the `jakarta.faces-api` submodule.
 
 Maven Central deploy and GitHub push only run after the TCK passes, so a failed TCK leaves no half-published external state.
 
@@ -70,6 +71,6 @@ API version is the value passed as `-Dfaces.version` to the TCK build (the publi
 ## Troubleshooting
 
 - **Release branch / tag already exists on origin.** Either pick a different `RELEASE_VERSION`, or re-run with `OVERWRITE=true` to delete and recreate it.
-- **TCK failures.** The build fails. Maven Central deploy and GitHub push are skipped, so no external state was published. `summary.txt` and `run.log` are archived as build artifacts.
+- **TCK failures.** The TCK stage fails on the failsafe exit code; the TCK report stage doesn't run, so only `run.log` is archived (no `summary.txt`). Maven Central deploy and GitHub push are skipped, so no external state was published.
 - **Java version mismatch on a developer rerun.** The pipeline picks the JDK from `BRANCH_CONFIG` (or the `JDK` / `TCK_JDK` overrides). If you're reproducing a failure locally, match those.
 - **Need to rehearse without publishing.** Set `DRY_RUN=true`. The pipeline still does the full build, version bumps, tagging, and TCK run, but skips the Maven Central deploy and the `git push origin` of the release branch / tag.
