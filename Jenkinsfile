@@ -407,7 +407,7 @@ pipeline {
                         surefire-report:failsafe-report-only -Daggregate=true \\
                         | tee "${WORKSPACE}/run.log"
 
-                    mvn ${MVN_EXTRA} org.apache.maven.plugins:maven-site-plugin:3.12.0:site \\
+                    mvn ${MVN_EXTRA} org.apache.maven.plugins:maven-site-plugin:3.21.0:site \\
                         -DskipOldTCK=true -Dtck.old.skip=true -Dtest.selenium=false \\
                         -Dmaven.test.skip=true -DskipTests=true \\
                         -DskipAssembly=true -Pstaging \\
@@ -419,8 +419,10 @@ pipeline {
 
                     cd "${WORKSPACE}"
                     REPORT="${TCK_BUNDLE_DIR}/tck/target/site/failsafe-report.html"
-                    sed '/table/,/table/!d;//d' "${REPORT}" | sed '/Package/q' \\
-                        | sed -n 's:.*<td.*>\\(.*\\)</td>.*:\\1:p' > tmp_result.txt
+                    awk '/<table/{in_table=1}
+                         in_table && /Package/{exit}
+                         in_table && /<td/ {sub(/.*<td[^>]*>/,""); sub(/<\\/td>.*/,""); print}' \\
+                        "${REPORT}" > tmp_result.txt
                     PASSED=$(sed '1q;d' tmp_result.txt)
                     ERRORS=$(sed '2q;d' tmp_result.txt)
                     FAILED=$(sed '3q;d' tmp_result.txt)
