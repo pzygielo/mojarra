@@ -87,6 +87,7 @@ import jakarta.faces.component.ActionSource;
 import jakarta.faces.component.Doctype;
 import jakarta.faces.component.EditableValueHolder;
 import jakarta.faces.component.UIComponent;
+import jakarta.faces.component.UIForm;
 import jakarta.faces.component.UIPanel;
 import jakarta.faces.component.UIViewRoot;
 import jakarta.faces.component.html.HtmlDoctype;
@@ -405,7 +406,7 @@ public class FaceletViewHandlingStrategy extends ViewHandlingStrategy {
              *
              * Note if you flag a view as transient then we won't acquire the session as you are stating it does not need one.
              */
-            if (isServerStateSaving() && !viewToRender.isTransient()) {
+            if (!viewToRender.isTransient() && extContext.getSession(false) == null && isServerStateSaving() && hasForm(ctx, viewToRender)) {
                 getSession(ctx);
             }
 
@@ -1839,6 +1840,25 @@ public class FaceletViewHandlingStrategy extends ViewHandlingStrategy {
         }
 
         return null;
+    }
+
+    /**
+     * @return true if the view contains at least one {@link UIForm}, in which case state will be written and a session
+     * is needed under server-side state saving.
+     */
+    private static boolean hasForm(FacesContext context, UIViewRoot viewRoot) {
+        if (viewRoot == null || viewRoot.getChildCount() == 0) {
+            return false;
+        }
+        boolean[] found = { false };
+        viewRoot.visitTree(VisitContext.createVisitContext(context), (visitContext, target) -> {
+            if (target instanceof UIForm) {
+                found[0] = true;
+                return VisitResult.COMPLETE;
+            }
+            return VisitResult.ACCEPT;
+        });
+        return found[0];
     }
 
     /**
