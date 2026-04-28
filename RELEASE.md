@@ -1,6 +1,6 @@
 # Releasing a new Mojarra version
 
-The release pipeline is the single `Jenkinsfile` at the repo root, run as a Jenkins multibranch / pipeline job (it replaces the legacy 3-job chain `1_mojarra-build-and-stage` → `2_mojarra-run-tck-against-staged-build_*` → `3_mojarra-staging-to-release`).
+The release pipeline is the single [`Jenkinsfile`](https://github.com/eclipse-ee4j/mojarra/blob/master/Jenkinsfile) at the repo root, run as a Jenkins multibranch / pipeline job (it replaces the legacy 3-job chain `1_mojarra-build-and-stage` → `2_mojarra-run-tck-against-staged-build_*` → `3_mojarra-staging-to-release`).
 
 It does, in one run:
 
@@ -36,7 +36,7 @@ In the example below we assume releasing **Mojarra 4.0.17**.
 7. On success, verify:
    - Artifact in [Maven Central](https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/) (may take up to an hour to surface).
    - Release branch `4.0.17` and tag `4.0.17-RELEASE` on [GitHub](https://github.com/eclipse-ee4j/mojarra/branches/active).
-   - On 5.0+ releases that also cut the API: matching branch / tag in [jakartaee/faces](https://github.com/jakartaee/faces) for the `jakarta.faces-api` version.
+   - On 5.0+ releases that also cut the API: matching branch / tag in [jakartaee/faces](https://github.com/jakartaee/faces/branches/active) for the `jakarta.faces-api` version.
 8. Open a PR to merge the `4.0.17` release branch back into `4.0`, then delete the release branch after merge.
 9. Manage the [milestones](https://github.com/eclipse-ee4j/mojarra/milestones) page:
    - make sure all issues / PRs are linked to the proper milestone
