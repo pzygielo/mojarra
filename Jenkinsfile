@@ -395,6 +395,8 @@ pipeline {
                             -DartifactId=glassfish -Dversion="${RESOLVED_GF_VERSION}" -Dpackaging=zip
                     fi
 
+                    # Failsafe gates on test failures via its own non-zero exit; report rendering and
+                    # human-readable summary are deferred to the next stage so a TCK failure fails fast.
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} clean install \\
                         -DskipOldTCK=true -Dtck.old.skip=true -Dtest.selenium=false \\
@@ -406,7 +408,27 @@ pipeline {
                         ${TCK_IT_TEST_FLAGS} \\
                         surefire-report:failsafe-report-only -Daggregate=true \\
                         | tee "${WORKSPACE}/run.log"
+                '''
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'run.log', allowEmptyArchive: true, fingerprint: true
+                }
+            }
+        }
 
+        stage('TCK report') {
+            when { expression { return params.RUN_TCK } }
+            steps {
+                sh '''#!/bin/bash -ex
+                    export JAVA_HOME="${TCK_JAVA_HOME}"
+                    export PATH="${JAVA_HOME}/bin:${PATH}"
+
+                    TCK_BUNDLE_NAME="jakarta-faces-tck-${RESOLVED_TCK_VERSION}"
+                    TCK_BUNDLE_DIR="faces-tck-${RESOLVED_TCK_VERSION}"
+                    TCK_URL="https://download.eclipse.org/jakartaee/faces/${VERSION_FAMILY}/${TCK_BUNDLE_NAME}.zip"
+
+                    cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} org.apache.maven.plugins:maven-site-plugin:3.21.0:site \\
                         -DskipOldTCK=true -Dtck.old.skip=true -Dtest.selenium=false \\
                         -Dmaven.test.skip=true -DskipTests=true \\
@@ -443,6 +465,8 @@ pipeline {
                         echo "******************************************************"
                     } > summary.txt
 
+                    # Defense-in-depth: the TCK stage already fails on failsafe errors, but if a future
+                    # change reorders or adds -Dmaven.test.failure.ignore=true, this catches it.
                     if [ "${FAILED}" -gt 0 ] || [ "${ERRORS}" -gt 0 ]; then
                         echo "TCK failures detected" >&2
                         exit 1
@@ -451,7 +475,7 @@ pipeline {
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'summary.txt,run.log', allowEmptyArchive: true, fingerprint: true
+                    archiveArtifacts artifacts: 'summary.txt', allowEmptyArchive: true, fingerprint: true
                 }
             }
         }
