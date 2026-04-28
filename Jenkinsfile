@@ -63,19 +63,20 @@ def JAVA_PREFIX_BY_JDK = [
 //   tckVersion     : Faces TCK release version
 //   gfVersion      : GlassFish Maven coordinate version used by the TCK
 //   chromeVersion  : Chrome-for-Testing build for the Selenium-gated TCK tests (BaseITNG,
-//                    pom default -Dtest.selenium=true). The released TCK zip's
-//                    WebDriverManager auto-fetches chromedriver and clobbers any
-//                    webdriver.chrome.driver override, so we install Chrome only and pin to
-//                    the same Stable major WDM defaults to (chrome ↔ chromedriver must
-//                    match). Bump along with Chrome Stable; available builds at
-//                    https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json
+//                    pom default -Dtest.selenium=true). Must match the CDP version the
+//                    released TCK zip's ChromeDevtoolsDriver imports — Selenium 4.20.0 (used
+//                    by TCK 4.1.0 zip) only ships CDP modules v122/v123/v124, so we pin
+//                    Chrome to 124. WDM is forced to that same major via
+//                    -Dwdm.chromeDriverVersion (added to mvn invocation), otherwise WDM
+//                    auto-fetches "latest stable" chromedriver and refuses to drive 124.
 //                    Set null to skip Chrome install and self-skip BaseITNG via
 //                    -Dtest.selenium=false. 4.0 uses null: CDP v108 predates Chrome-for-Testing
-//                    (starts ~115) and a 7+ major CDP gap exceeds Selenium's fudge factor.
+//                    (starts ~115) and 7+ major CDP gap exceeds Selenium's fudge factor.
+//                    Available builds: https://googlechromelabs.github.io/chrome-for-testing/
 def BRANCH_CONFIG = [
     '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'  , chromeVersion: null               ],
-    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', chromeVersion: '148.0.7778.56'    ],
-    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', chromeVersion: '148.0.7778.56'    ],
+    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', chromeVersion: '124.0.6367.207'  ],
+    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', chromeVersion: '124.0.6367.207'  ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent on the same agent;
@@ -470,6 +471,12 @@ pipeline {
                             echo "${missing}"
                         fi
                         echo "[chrome-bootstrap] $(chrome --version)"
+
+                        # Force the TCK's WebDriverManager to fetch a chromedriver matching
+                        # our pinned Chrome version. Without this, WDM defaults to "latest
+                        # stable" when it cannot detect a system browser, which on a fresh
+                        # agent doesn't match our pinned Chrome.
+                        SELENIUM_FLAG="-Dwdm.chromeDriverVersion=${RESOLVED_CHROME_VERSION}"
                     else
                         echo "[chrome-bootstrap] RESOLVED_CHROME_VERSION is empty -> skipping Chrome install, BaseITNG tests will self-skip via -Dtest.selenium=false."
                         SELENIUM_FLAG="-Dtest.selenium=false"
