@@ -1125,6 +1125,58 @@ describe("faces.ajax.response", () => {
         expect(created!.value).toBe("sharedState");
         otherForm.remove();
     });
+
+    test("update jakarta.faces.Resource injects new <link> stylesheet into head", () => {
+        const beforeLinks = document.head.querySelectorAll("link").length;
+        ajax().request(button, null, { render: "testForm" });
+        const href = "/test/jakarta.faces.resource/issue4345.css.xhtml?firstParam=1&amp;secondParam=2";
+        const xml = successResponse(
+            `<update id="jakarta.faces.Resource"><![CDATA[<link type="text/css" rel="stylesheet" href="${href}" />]]></update>`
+        );
+        lastXHR().respond(200, "", xml);
+
+        const links = document.head.querySelectorAll("link");
+        expect(links.length).toBe(beforeLinks + 1);
+        const injected = links[links.length - 1];
+        expect(injected.getAttribute("rel")).toBe("stylesheet");
+        // href is unescaped before being assigned to the DOM property
+        expect(injected.href).toContain("issue4345.css.xhtml?firstParam=1&secondParam=2");
+        injected.remove();
+    });
+
+    test("update jakarta.faces.Resource skips <link> already present in head", () => {
+        const href = "/test/jakarta.faces.resource/already-loaded.css.xhtml";
+        const existing = document.createElement("link");
+        existing.setAttribute("type", "text/css");
+        existing.setAttribute("rel", "stylesheet");
+        existing.setAttribute("href", href);
+        document.head.appendChild(existing);
+
+        const beforeLinks = document.head.querySelectorAll("link").length;
+        ajax().request(button, null, { render: "testForm" });
+        const xml = successResponse(
+            `<update id="jakarta.faces.Resource"><![CDATA[<link type="text/css" rel="stylesheet" href="${href}" />]]></update>`
+        );
+        lastXHR().respond(200, "", xml);
+
+        expect(document.head.querySelectorAll("link").length).toBe(beforeLinks);
+        existing.remove();
+    });
+
+    test("update jakarta.faces.Resource handles multiple <link> tags without throwing", () => {
+        const beforeLinks = document.head.querySelectorAll("link").length;
+        ajax().request(button, null, { render: "testForm" });
+        const xml = successResponse(
+            '<update id="jakarta.faces.Resource"><![CDATA[' +
+            '<link type="text/css" rel="stylesheet" href="/test/a.css" />' +
+            '<link type="text/css" rel="stylesheet" href="/test/b.css" />' +
+            ']]></update>'
+        );
+        expect(() => lastXHR().respond(200, "", xml)).not.toThrow();
+
+        expect(document.head.querySelectorAll("link").length).toBe(beforeLinks + 2);
+        document.head.querySelectorAll('link[href^="/test/"]').forEach(el => el.remove());
+    });
 });
 
 // ---- HTTP error codes ----

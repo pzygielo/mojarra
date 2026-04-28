@@ -18,27 +18,27 @@
 
 /**
  @project Faces JavaScript Library
- @version 4.0.15
+ @version 4.0.17
  @description This is the standard implementation of the Faces JavaScript Library.
  */
 
 // Detect if this is already loaded, and if loaded, if it's a higher version
 if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
-      (faces.implversion && faces.implversion >= 15))) {
+      (faces.implversion && faces.implversion >= 17))) {
 
     // --- JS Lang --------------------------------------------------------------------
-    const UDEF = 'undefined';
-    const EMPTY = "";
-    const SPACE = " ";
-    const FORM = "form";
-    const isNull = (value) => (typeof value === UDEF || (typeof value === "object" && !value));
-    const isNotNull = (value) => !isNull(value);
+    var UDEF = 'undefined';
+    var EMPTY = "";
+    var SPACE = " ";
+    var FORM = "form";
+    var isNull = function(value) { return (typeof value === UDEF || (typeof value === "object" && !value)); };
+    var isNotNull = function(value) { return !isNull(value); };
 
     /**
      * Get the head from document.
      * @ignore
      */
-    const getHead = () => {
+    var getHead = function() {
         return document.head || document.getElementsByTagName('head')[0] || document.documentElement;
     };
 
@@ -46,13 +46,13 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      * Get the nonce from faces.js script for CSP support.
      * @ignore
      */
-    const getNonce = (() => {
-        const loadTimeNonce = document.currentScript ? document.currentScript.nonce : undefined;
-        return () => {
+    var getNonce = (function() {
+        var loadTimeNonce = document.currentScript ? document.currentScript.nonce : undefined;
+        return function() {
             if (loadTimeNonce) {
                 return loadTimeNonce;
             }
-            const thisScript = document.querySelector("script[src*='jakarta.faces.resource/faces.js']");
+            var thisScript = document.querySelector("script[src*='jakarta.faces.resource/faces.js']");
             return isNotNull(thisScript) ? thisScript.nonce : undefined;
         };
     })();
@@ -62,8 +62,8 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      * Execute script with nonce for CSP support.
      * @ignore
      */
-    const executeScriptWithNonce = (head, script, nonce) => {
-        const scriptNode = document.createElement('script'); // create script node
+    var executeScriptWithNonce = function(head, script, nonce) {
+        var scriptNode = document.createElement('script'); // create script node
         scriptNode.nonce = nonce;
         scriptNode.text = script; // add the code to the script node
         head.appendChild(scriptNode); // add it to the head
@@ -71,28 +71,28 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
     };
 
     // --- Faces constants ------------------------------------------------------------
-    const VIEW_STATE_PARAM = "jakarta.faces.ViewState";
-    const CLIENT_WINDOW_PARAM = "jakarta.faces.ClientWindow";
-    const ALWAYS_EXECUTE_IDS = [ VIEW_STATE_PARAM , CLIENT_WINDOW_PARAM ];
-    const ENCODED_URL_PARAM = "jakarta.faces.encodedURL";
+    var VIEW_STATE_PARAM = "jakarta.faces.ViewState";
+    var CLIENT_WINDOW_PARAM = "jakarta.faces.ClientWindow";
+    var ALWAYS_EXECUTE_IDS = [ VIEW_STATE_PARAM , CLIENT_WINDOW_PARAM ];
+    var ENCODED_URL_PARAM = "jakarta.faces.encodedURL";
 
     /**
      * experimental: do partial submit during ajax request
      * todo: add a config parameter for this, where?
      */
-    const PARTIAL_SUBMIT_ENABLED = true;
+    var PARTIAL_SUBMIT_ENABLED = true;
 
     /**
      * Check if a String or an Array contains a value
      * @ignore
      */
-    const contains = function(stringOrArray,value) { return stringOrArray.indexOf(value) !== -1; }
+    var contains = function(stringOrArray,value) { return stringOrArray.indexOf(value) !== -1; }
 
     /**
      * Find instance of passed String via getElementById.
      * @ignore
      */
-    const getElemById = function getElemById( elementOrId ) {
+    var getElemById = function getElemById( elementOrId ) {
         return typeof elementOrId == 'string' ? document.getElementById(elementOrId) : elementOrId;
     };
 
@@ -100,7 +100,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      * get dom element or document child by name attribute
      * @ignore
      */
-    const getElementByName = function(element, name) {
+    var getElementByName = function(element, name) {
         return element.querySelector("[name='"+name+"']");
     }
 
@@ -108,7 +108,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      * get the input element inside a form identified by name attribute
      * @ignore
      */
-    const getFormInputElementByName = function(form, inputElementName) {
+    var getFormInputElementByName = function(form, inputElementName) {
         return inputElementName in form ? form[inputElementName] : getElementByName(form,inputElementName);
     }
 
@@ -116,7 +116,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      * append a new pair of parameter=value to a query string
      * @ignore
      */
-    const appendToQueryString = function appendToQueryString( queryString , name, value) {
+    var appendToQueryString = function appendToQueryString( queryString , name, value) {
         return queryString + ( (queryString.length > 0 ? "&" : EMPTY) + encodeURIComponent(name) + "=" + encodeURIComponent(value) );
     };
 
@@ -128,8 +128,8 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      * @returns {boolean} true if at least one of the domElements contains a child with the attribute name equals to the passed param name
      * @ignore
      */
-    const containsNamedChild = function (elements,name) {
-        return elements.some( elem => !!getElementByName(elem,name) );
+    var containsNamedChild = function (elements,name) {
+        return elements.some(function(elem) { return !!getElementByName(elem,name); });
     }
 
     /**
@@ -716,15 +716,15 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
         };
 
         // Regex to find all scripts in a string
-        const SCRIPT_TAG_REGEX = /<script[^>]*>([\S\s]*?)<\/script>/igm;
+        var SCRIPT_TAG_REGEX = /<script[^>]*>([\S\s]*?)<\/script>/igm;
 
         // Regex to find type attribute
-        const TAG_ATTRIBUTE_TYPE_REGEX = /type="([\S]*?)"/im;
+        var TAG_ATTRIBUTE_TYPE_REGEX = /type="([\S]*?)"/im;
 
 
         var removeScripts = function removeScripts(str) {
             return str.replace(SCRIPT_TAG_REGEX, function(match, content) {
-                const type = match.match(TAG_ATTRIBUTE_TYPE_REGEX);
+                var type = match.match(TAG_ATTRIBUTE_TYPE_REGEX);
                 if (!!type && type[1] !== "text/javascript") {
                     return match; // keep non-text/javascript scripts
                 }
@@ -754,7 +754,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
                 }
             }
 
-            const head = getHead();
+            var head = getHead();
             runScript(head, loadedScriptUrls, scripts, 0);
         };
 
@@ -780,7 +780,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             var src = scriptStr[1].match(findsrc);
             var scriptLoadedViaUrl = false;
 
-            const nonce = getNonce();
+            var nonce = getNonce();
 
             if (!!src && src[1]) {
                 // if this is a file, load it
@@ -835,7 +835,10 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
             var findhref = /href="([\S]*?)"/im;
 
             // the head of the document, note that document.head do not always work
-            const head = getHead();
+            var head = getHead();
+
+            var loadedStylesheetUrls = null;
+            var parserElement = null;
 
             var initialnodes = str.match(findlinks);
             while (!!initialnodes && initialnodes.length > 0) {
@@ -1816,8 +1819,8 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
          * @param element to eval
          * @ignore
          */
-        const doEval = function doEval(element) {
-            const script = element ? element.textContent : undefined;
+        var doEval = function doEval(element) {
+            var script = element ? element.textContent : undefined;
             if (script) runScripts([[null, '', script]]);
             else console.warn('called doEval with no source code');
         };
@@ -1826,7 +1829,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
          * Ajax Request Queue
          * @ignore
          */
-        const Queue = new function Queue() {
+        var Queue = new function Queue() {
 
             // Create the internal queue
             var queue = [];
@@ -3667,21 +3670,21 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
         // RELEASE_PENDING rogerk - shouldn't this be getElementById instead of null
         var thisArg = (typeof source === 'object') ? source : null;
 
-        const head = getHead();
-        const nonce = getNonce();
+        var head = getHead();
+        var nonce = getNonce();
 
         // Call back any scripts that were passed in
-        for (let i = 2; i < arguments.length; i++) {
-            const facesChainThis = '__facesChainThis' + i;
-            const facesChainEvent = '__facesChainEvent' + i;
-            const facesChainResult = '__facesChainResult' + i;
+        for (var i = 2; i < arguments.length; i++) {
+            var facesChainThis = '__facesChainThis' + i;
+            var facesChainEvent = '__facesChainEvent' + i;
+            var facesChainResult = '__facesChainResult' + i;
 
-            let result = undefined;
+            var result = undefined;
 
             try {
                 window[facesChainThis] = thisArg;
                 window[facesChainEvent] = event;
-                const script = 'window.' + facesChainResult + ' = (function(event) { ' + arguments[i] + ' }).call(window.' + facesChainThis + ', window.' + facesChainEvent + ');';
+                var script = 'window.' + facesChainResult + ' = (function(event) { ' + arguments[i] + ' }).call(window.' + facesChainThis + ', window.' + facesChainEvent + ');';
                 executeScriptWithNonce(head, script, nonce);
                 result = window[facesChainResult];
             }
@@ -3725,7 +3728,7 @@ if (!((faces && faces.specversion && faces.specversion >= 40000 ) &&
      * <code>faces.specversion</code>
      * This number is implementation dependent.</p>
      */
-    faces.implversion = 15;
+    faces.implversion = 17;
 
 
 } //end if version detection block
@@ -3922,5 +3925,11 @@ mojarra.l = function l(l) {
  * @param fn function
  */
 mojarra.ael = function ael(id, ev, fn) {
-    document.getElementById(id).addEventListener(ev, fn);
+    var element = document.getElementById(id);
+    if (element.addEventListener) {
+        element.addEventListener(ev, fn, false);
+    }
+    else if (element.attachEvent) {
+        element.attachEvent(ev, fn);
+    }
 };
