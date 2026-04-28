@@ -62,25 +62,20 @@ def JAVA_PREFIX_BY_JDK = [
 //   facesVersion   : -Dfaces.version passed to the TCK build
 //   tckVersion     : Faces TCK release version
 //   gfVersion      : GlassFish Maven coordinate version used by the TCK
-//   chromeVersion  : Chrome-for-Testing build to install on the Eclipse CI agent (which has no
-//                    pre-installed browser) so that the TCK's Selenium-driven tests (anything
-//                    extending BaseITNG, gated on -Dtest.selenium=true → pom default) can run.
-//                    Must be CDP-compatible with the Selenium import baked into the TCK util's
-//                    ChromeDevtoolsDriver for that branch:
-//                       4.0.x  → tck util imports devtools.v108  → ideally Chrome ~108
-//                       master → tck util imports devtools.v139  → Chrome 139
-//                       5.0    → tck util imports devtools.v139  → Chrome 139
-//                    Set to null/empty to skip the Chrome bootstrap and force HtmlUnit-only via
-//                    -Dtest.selenium=false. This is the right choice for 4.0 because Chrome 108
-//                    predates Chrome-for-Testing (CfT starts at Chrome ~115), so we cannot
-//                    install a CDP-matching browser anyway, and Selenium 4.7.2's CDP fudge
-//                    factor across 7+ majors is not reliable. 4.0.3 was originally certified
-//                    HtmlUnit-only; preserving that.
-//                    Available URLs: https://googlechromelabs.github.io/chrome-for-testing/
+//   chromeVersion  : Chrome-for-Testing build for the Selenium-gated TCK tests (BaseITNG,
+//                    pom default -Dtest.selenium=true). The released TCK zip's
+//                    WebDriverManager auto-fetches chromedriver and clobbers any
+//                    webdriver.chrome.driver override, so we install Chrome only and pin to
+//                    the same Stable major WDM defaults to (chrome ↔ chromedriver must
+//                    match). Bump along with Chrome Stable; available builds at
+//                    https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json
+//                    Set null to skip Chrome install and self-skip BaseITNG via
+//                    -Dtest.selenium=false. 4.0 uses null: CDP v108 predates Chrome-for-Testing
+//                    (starts ~115) and a 7+ major CDP gap exceeds Selenium's fudge factor.
 def BRANCH_CONFIG = [
     '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'  , chromeVersion: null               ],
-    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', chromeVersion: '139.0.7258.155'   ],
-    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', chromeVersion: '139.0.7258.155'   ],
+    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', chromeVersion: '148.0.7778.56'    ],
+    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', chromeVersion: '148.0.7778.56'    ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent on the same agent;
@@ -399,53 +394,36 @@ pipeline {
                     export JAVA_HOME="${TCK_JAVA_HOME}"
                     export PATH="${JAVA_HOME}/bin:${PATH}"
 
-                    # Chrome-for-Testing bootstrap. The Faces TCK drives modern spec tests
-                    # (anything extending BaseITNG, gated on -Dtest.selenium=true) through
-                    # Selenium + ChromeDriver. Eclipse CI agents do not ship Chrome, so we pull
-                    # a pinned Chrome-for-Testing build into the workspace and prepend it to PATH.
-                    #
-                    # When RESOLVED_CHROME_VERSION is empty, no Chrome is installed and
-                    # SELENIUM_FLAG is set to -Dtest.selenium=false so all BaseITNG tests
-                    # self-skip (otherwise they would all fail with SessionNotCreatedException
-                    # at driver init). 4.0 currently uses this path because Chrome 108 (the CDP
-                    # version baked into the 4.0 TCK) predates Chrome-for-Testing.
-                    #
-                    # Bootstrap output is intentionally quiet: ~125 transitive .debs make for
-                    # 250+ trace lines under set -x, none of which are useful when things work.
-                    # Trace is suppressed only for the bootstrap block (set +x ... set -x).
+                    # Chrome-for-Testing bootstrap. Eclipse CI agents ship no browser, so for
+                    # BaseITNG tests (gated on -Dtest.selenium=true, pom default) we install
+                    # Chrome into the workspace and let the TCK's WebDriverManager fetch a
+                    # matching chromedriver. Chrome's NSS/GTK/X runtime deps come from
+                    # apt-get download + dpkg-deb -x (unprivileged). Empty
+                    # RESOLVED_CHROME_VERSION → set SELENIUM_FLAG=-Dtest.selenium=false so
+                    # BaseITNG self-skips instead of failing on driver init (4.0's path).
+                    # set +x silences the ~125-deb extraction noise; restored at end.
                     set +x
                     SELENIUM_FLAG=""
                     if [ -n "${RESOLVED_CHROME_VERSION}" ]; then
-                        CFT_BASE="https://storage.googleapis.com/chrome-for-testing-public/${RESOLVED_CHROME_VERSION}/linux64"
+                        echo "[chrome-bootstrap] target Chrome-for-Testing version: ${RESOLVED_CHROME_VERSION}"
+                        CFT_URL="https://storage.googleapis.com/chrome-for-testing-public/${RESOLVED_CHROME_VERSION}/linux64/chrome-linux64.zip"
                         CHROME_DIR="${WORKSPACE}/.chrome-${RESOLVED_CHROME_VERSION}"
-                        if [ ! -x "${CHROME_DIR}/chrome-linux64/chrome" ] || [ ! -x "${CHROME_DIR}/chromedriver-linux64/chromedriver" ]; then
+                        if [ ! -x "${CHROME_DIR}/chrome-linux64/chrome" ]; then
+                            echo "[chrome-bootstrap] downloading chrome from ${CFT_URL} ..."
                             rm -rf "${CHROME_DIR}" && mkdir -p "${CHROME_DIR}"
-                            ( cd "${CHROME_DIR}" && \
-                              wget -q "${CFT_BASE}/chrome-linux64.zip" && \
-                              wget -q "${CFT_BASE}/chromedriver-linux64.zip" && \
-                              unzip -q chrome-linux64.zip && \
-                              unzip -q chromedriver-linux64.zip )
+                            ( cd "${CHROME_DIR}" && wget -q "${CFT_URL}" && unzip -q chrome-linux64.zip )
+                        else
+                            echo "[chrome-bootstrap] chrome already present, skipping download."
                         fi
-                        export PATH="${CHROME_DIR}/chrome-linux64:${CHROME_DIR}/chromedriver-linux64:${PATH}"
+                        export PATH="${CHROME_DIR}/chrome-linux64:${PATH}"
 
-                        # Eclipse CI agents are minimal Debian-based pods without a browser
-                        # toolchain; Chrome dynamically links against NSS / GTK / X libs that
-                        # aren't installed by default and we have no root. Fetch the missing
-                        # .deb packages with apt-get download (which works as an unprivileged
-                        # user) and extract them into the workspace, then prepend the extracted
-                        # multiarch lib dir to LD_LIBRARY_PATH so Chrome's loader finds them.
-                        # Idempotent: skipped on subsequent runs if the cache already exists.
                         DEPS_DIR="${WORKSPACE}/.chrome-deps"
                         if [ ! -f "${DEPS_DIR}/.installed" ]; then
                             rm -rf "${DEPS_DIR}" && mkdir -p "${DEPS_DIR}/debs"
-                            # Some packages were renamed with a 't64' suffix in Ubuntu 24.04
-                            # as part of the 64-bit time_t ABI transition (libasound2 ->
-                            # libasound2t64, libatk1.0-0 -> libatk1.0-0t64, etc.). Older
-                            # distros still use the unsuffixed names. Pick whichever variant
-                            # actually has an installable candidate version. Note: probing
-                            # via apt-cache show is wrong here — the transitional dummy
-                            # package still has metadata but no candidate, so we must use
-                            # apt-cache policy and reject Candidate: (none).
+                            # Ubuntu 24.04 renamed several packages with a 't64' suffix for
+                            # the 64-bit time_t ABI transition. The unsuffixed names still
+                            # exist as transitional dummies but have no installable candidate;
+                            # apt-cache policy reveals that, apt-cache show does not.
                             pick() {
                                 for name in "$@"; do
                                     cand=$(apt-cache policy "$name" 2>/dev/null \
@@ -454,63 +432,44 @@ pipeline {
                                         echo "$name"; return 0
                                     fi
                                 done
-                                echo "ERROR: none of the candidates [$*] have an installable version" >&2
+                                echo "ERROR: none of [$*] have an installable version" >&2
                                 return 1
                             }
                             DIRECT="libnspr4 libnss3 libxkbcommon0 libxcomposite1 libxdamage1 \
                                     libxrandr2 libxfixes3 libxshmfence1 libgbm1 \
                                     libpango-1.0-0 libpangocairo-1.0-0 libcairo2 \
-                                    libdrm2 libexpat1 libuuid1"
-                            DIRECT="${DIRECT} $(pick libasound2t64       libasound2)"
-                            DIRECT="${DIRECT} $(pick libatspi2.0-0t64    libatspi2.0-0)"
-                            DIRECT="${DIRECT} $(pick libatk1.0-0t64      libatk1.0-0)"
-                            DIRECT="${DIRECT} $(pick libatk-bridge2.0-0t64 libatk-bridge2.0-0)"
-                            DIRECT="${DIRECT} $(pick libcups2t64         libcups2)"
-
-                            # apt-get download fetches ONLY the listed packages, not their
-                            # Depends. Chrome's actual runtime closure (libxcb1, libx11-6,
-                            # libfontconfig1, libfreetype6, ...) is reached transitively. Use
-                            # apt-cache depends --recurse to expand to the full closure
-                            # (~125 packages, ~125 MB on Ubuntu 24.04 noble).
+                                    libdrm2 libexpat1 libuuid1 \
+                                    $(pick libasound2t64         libasound2) \
+                                    $(pick libatspi2.0-0t64      libatspi2.0-0) \
+                                    $(pick libatk1.0-0t64        libatk1.0-0) \
+                                    $(pick libatk-bridge2.0-0t64 libatk-bridge2.0-0) \
+                                    $(pick libcups2t64           libcups2)"
+                            # Expand to the full transitive Depends closure (~125 packages on
+                            # Ubuntu 24.04 noble); apt-get download alone fetches only the
+                            # listed names, leaving Chrome's deps-of-deps (libxcb1, libx11-6,
+                            # libfontconfig1, libfreetype6, ...) unresolved.
                             CLOSURE=$(apt-cache depends --recurse \
                                 --no-recommends --no-suggests --no-conflicts \
                                 --no-breaks --no-replaces --no-enhances ${DIRECT} \
                                 | grep -v "[<>:]" | grep -v "^$" | sort -u | tr "\\n" " ")
-
-                            # Tolerate per-package 404s from stale mirror state (security.ubuntu
-                            # .com sometimes drops a point version mid-day). The chrome --version
-                            # sanity check below is the actual gate — if a critical lib is
-                            # missing, that fails loud; otherwise an extra missing transitive .deb
-                            # is harmless.
-                            n_pkgs=$(echo ${CLOSURE} | wc -w)
-                            echo "[chrome-bootstrap] downloading ${n_pkgs} transitive .deb packages..."
+                            echo "[chrome-bootstrap] downloading $(echo ${CLOSURE} | wc -w) transitive .deb packages..."
+                            # || true: tolerate occasional stale-mirror 404s; the chrome
+                            # --version check below is the actual gate.
                             ( cd "${DEPS_DIR}/debs" && apt-get download -q=2 ${CLOSURE} >/dev/null 2>&1 || true )
-                            n_got=$(ls -1 "${DEPS_DIR}/debs"/*.deb 2>/dev/null | wc -l)
-                            echo "[chrome-bootstrap] extracting ${n_got} packages..."
+                            echo "[chrome-bootstrap] extracting $(ls -1 "${DEPS_DIR}/debs"/*.deb | wc -l) packages..."
                             for d in "${DEPS_DIR}"/debs/*.deb; do dpkg-deb -x "$d" "${DEPS_DIR}"; done
                             touch "${DEPS_DIR}/.installed"
                         fi
                         export LD_LIBRARY_PATH="${DEPS_DIR}/usr/lib/x86_64-linux-gnu:${DEPS_DIR}/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
 
-                        # Sanity-check both binaries before the TCK starts; a failure here
-                        # surfaces any STILL-missing shared lib up front rather than buried in
-                        # a SessionNotCreatedException from inside surefire. ldd is shown only
-                        # when something is unresolved, so the success path stays quiet.
+                        # A missing shared lib here is much easier to diagnose than the same
+                        # failure buried in a SessionNotCreatedException from inside surefire.
                         missing=$(ldd "${CHROME_DIR}/chrome-linux64/chrome" | grep "not found" || true)
                         if [ -n "${missing}" ]; then
                             echo "[chrome-bootstrap] ldd reports missing libs:"
                             echo "${missing}"
                         fi
-                        echo "[chrome-bootstrap] $(chrome --version) / $(chromedriver --version)"
-
-                        # Force Selenium to use OUR chromedriver instead of letting the bundled
-                        # Selenium Manager auto-download one. With Selenium 4.6+, ChromeDriver
-                        # ctor falls back to Selenium Manager when webdriver.chrome.driver is
-                        # unset, and Selenium Manager fetches latest stable (148) regardless of
-                        # the browserVersion hint, then refuses to drive our pinned Chrome 139.
-                        # webdriver.chrome.driver is consulted FIRST by ChromeDriverService and
-                        # short-circuits Selenium Manager entirely.
-                        SELENIUM_FLAG="-Dwebdriver.chrome.driver=${CHROME_DIR}/chromedriver-linux64/chromedriver"
+                        echo "[chrome-bootstrap] $(chrome --version)"
                     else
                         echo "[chrome-bootstrap] RESOLVED_CHROME_VERSION is empty -> skipping Chrome install, BaseITNG tests will self-skip via -Dtest.selenium=false."
                         SELENIUM_FLAG="-Dtest.selenium=false"
