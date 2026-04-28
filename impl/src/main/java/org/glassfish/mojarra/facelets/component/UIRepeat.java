@@ -86,8 +86,8 @@ public class UIRepeat extends UINamingContainer {
 
     private int index = -1;
 
-    private Integer originalBegin;
-    private Integer originalEnd;
+    private Integer effectiveBegin;
+    private Integer effectiveEnd;
 
     private Integer begin;
     private Integer end;
@@ -195,6 +195,24 @@ public class UIRepeat extends UINamingContainer {
     }
 
     /**
+     * Returns the begin index actually used by the iteration loop. For a synthetic integer-range model (no {@code value},
+     * only {@code begin}/{@code end}) this is always {@code 0} (an array index), not the user-supplied {@code begin}.
+     * For a value-bound model this falls back to {@link #getBegin()} (typically {@code null}, which the loop treats as {@code 0}).
+     */
+    private Integer getIterationBegin() {
+        return effectiveBegin != null ? effectiveBegin : getBegin();
+    }
+
+    /**
+     * Returns the end index actually used by the iteration loop. For a synthetic integer-range model (no {@code value},
+     * only {@code begin}/{@code end}) this is the array length, not the user-supplied {@code end}. For a value-bound
+     * model this falls back to {@link #getEnd()} (typically {@code null}, which the loop treats as {@code rowCount}).
+     */
+    private Integer getIterationEnd() {
+        return effectiveEnd != null ? effectiveEnd : getEnd();
+    }
+
+    /**
      * <p class="changed_added_4_1">
      * Boolean flag directing how the per-row component state of {@link EditableValueHolder} children should be handled across requests on the same view.
      * If set to {@code true}, then state for {@link EditableValueHolder} components in each row will not be discarded before a new row is rendered.
@@ -288,18 +306,13 @@ public class UIRepeat extends UINamingContainer {
                     throw new FacesException("UIRepeat: when 'value' attribute is not set, you need 'end' attribute instead of 'size' attribute");
                 }
                 
-                if (originalBegin == null) {
-                    originalBegin = getBegin();
-                }
-                if (originalEnd == null) {
-                    originalEnd = getEnd();
-                }
-
-                Integer begin = originalBegin;
-                Integer end = originalEnd;
+                Integer begin = getBegin();
+                Integer end = getEnd();
 
                 if (begin == null && end == null) {
                     model = EMPTY_MODEL;
+                    effectiveBegin = null;
+                    effectiveEnd = null;
                 } else {
                     int b = begin == null ? 0 : begin;
                     int e = end == null ? 0 : end;
@@ -312,8 +325,8 @@ public class UIRepeat extends UINamingContainer {
                     }
 
                     model = new ArrayDataModel<>(array);
-                    setBegin(0);
-                    setEnd(s);
+                    effectiveBegin = 0;
+                    effectiveEnd = s;
                 }
             } else if (val instanceof DataModel) {
                 // noinspection unchecked
@@ -654,9 +667,11 @@ public class UIRepeat extends UINamingContainer {
                 Iterator<UIComponent> itr;
                 UIComponent c;
 
-                Integer begin = getBegin();
+                int rowCount = getDataModel().getRowCount();
+
+                Integer begin = getIterationBegin();
                 Integer step = getStep();
-                Integer end = getEnd();
+                Integer end = getIterationEnd();
                 Integer offset = getOffset();
 
                 if (null != offset && offset > 0) {
@@ -675,7 +690,6 @@ public class UIRepeat extends UINamingContainer {
                     renderer = getRenderer(faces);
                 }
 
-                int rowCount = getDataModel().getRowCount();
                 int i = begin != null ? begin : 0;
                 int e = end != null ? end : rowCount;
                 int s = step != null ? step : 1;
@@ -889,11 +903,11 @@ public class UIRepeat extends UINamingContainer {
 
     private boolean visitChildren(VisitContext context, VisitCallback callback) {
 
-        Integer begin = getBegin();
-        Integer end = getEnd();
+        int rowCount = getDataModel().getRowCount();
+        Integer begin = getIterationBegin();
+        Integer end = getIterationEnd();
         Integer step = getStep();
 
-        int rowCount = getDataModel().getRowCount();
         int i = begin != null ? begin : 0;
         int e = end != null ? end : rowCount;
         int s = step != null ? step : 1;
@@ -1054,8 +1068,8 @@ public class UIRepeat extends UINamingContainer {
                 if (needsToSetIndex) {
                     setIndex(ctx, idx);
                 }
-                Integer begin = getBegin();
-                Integer end = getEnd();
+                Integer begin = getIterationBegin();
+                Integer end = getIterationEnd();
                 Integer step = getStep();
                 int b = begin != null ? begin : 0;
                 int e = end != null ? end : rowCount;
@@ -1135,9 +1149,7 @@ public class UIRepeat extends UINamingContainer {
         var = (String) state[5];
         varStatus = (String) state[6];
         value = state[7];
-        originalBegin = (Integer) state[8];
-        originalEnd = (Integer) state[9];
-        preservedRowStates = (Map<String, Object>) state[10];
+        preservedRowStates = (Map<String, Object>) state[8];
     }
 
     @Override
@@ -1147,7 +1159,7 @@ public class UIRepeat extends UINamingContainer {
         if (faces == null) {
             throw new NullPointerException();
         }
-        Object[] state = new Object[11];
+        Object[] state = new Object[9];
         state[0] = super.saveState(faces);
         state[1] = childState;
         state[2] = begin;
@@ -1156,9 +1168,7 @@ public class UIRepeat extends UINamingContainer {
         state[5] = var;
         state[6] = varStatus;
         state[7] = value;
-        state[8] = originalBegin;
-        state[9] = originalEnd;
-        state[10] = preservedRowStates;
+        state[8] = preservedRowStates;
         return state;
     }
 

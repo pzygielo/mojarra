@@ -62,6 +62,10 @@ def JAVA_PREFIX_BY_JDK = [
 //   facesVersion   : -Dfaces.version passed to the TCK build
 //   tckVersion     : Faces TCK release version
 //   gfVersion      : GlassFish Maven coordinate version used by the TCK
+// (Chrome version is auto-detected at TCK time from the unzipped tck zip's
+// ChromeDevtoolsDriver.java CDP import — see the TCK stage. 4.0's TCK pins CDP v108, which
+// predates Chrome-for-Testing's catalog (starts ~v113), so detection there naturally yields
+// no installable Chrome and the BaseITNG tests self-skip via -Dtest.selenium=false.)
 def BRANCH_CONFIG = [
     '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'   ],
     '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6' ],
@@ -131,6 +135,8 @@ pipeline {
                description: 'Leave blank to auto-infer from BRANCH. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
         string(name: 'GF_BUNDLE_URL',   defaultValue: '',
                description: 'Optional GlassFish zip URL override. If set, GF_VERSION must also be set to match.')
+        string(name: 'CHROME_VERSION',  defaultValue: '',
+               description: 'Optional Chrome-for-Testing version override (e.g. 139.0.7258.155). Leave blank to auto-detect from the downloaded TCK zip (greps the CDP major out of ChromeDevtoolsDriver.java and resolves it via Chrome-for-Testing\\'s milestone JSON). Set to literal "none" to skip the Chrome install and force -Dtest.selenium=false. See https://googlechromelabs.github.io/chrome-for-testing/ for available builds.')
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release).')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
@@ -165,6 +171,12 @@ pipeline {
                     env.RESOLVED_TCK_JDK     = params.TCK_JDK?.trim()     ?: cfg.tckJdk
                     env.RESOLVED_TCK_VERSION = params.TCK_VERSION?.trim() ?: cfg.tckVersion
                     env.RESOLVED_GF_VERSION  = params.GF_VERSION?.trim()  ?: cfg.gfVersion
+                    // CHROME_VERSION resolution:
+                    //   blank param -> auto-detect from the unzipped TCK in the TCK stage.
+                    //   "none"      -> explicitly skip Chrome install, force HtmlUnit-only.
+                    //   anything    -> exact CfT version to install on the agent (override).
+                    def chromeOverride = params.CHROME_VERSION?.trim()
+                    env.RESOLVED_CHROME_VERSION = (chromeOverride == 'none') ? '' : (chromeOverride ?: '')
                     env.FACES_VERSION        = cfg.facesVersion
                     env.VERSION_FAMILY       = cfg.versionFamily
                     env.API_BRANCH           = cfg.apiBranch ?: ''
@@ -388,6 +400,113 @@ pipeline {
                     wget -q "${TCK_URL}" -O "download/${TCK_BUNDLE_NAME}.zip"
                     unzip -q -o "download/${TCK_BUNDLE_NAME}.zip"
 
+                    # Chrome-for-Testing bootstrap. Eclipse CI agents ship no browser, so for
+                    # BaseITNG tests (gated on -Dtest.selenium=true, pom default) we install
+                    # Chrome into the workspace and let the TCK's WebDriverManager fetch a
+                    # matching chromedriver. Chrome's NSS/GTK/X runtime deps come from
+                    # apt-get download + dpkg-deb -x (unprivileged).
+                    #
+                    # Auto-detect the right Chrome version from the unzipped TCK: the
+                    # ChromeDevtoolsDriver.java in the zip imports a hardcoded CDP major
+                    # (e.g. v108 in TCK 4.0.3, v124 in TCK 4.1.0, v139 in 5.0+ TCKs). We
+                    # grep that and resolve the matching Chrome patch via Chrome-for-Testing's
+                    # milestone JSON. If CfT has no build for that major (e.g. v108 — CfT's
+                    # catalog starts around v113) we fall back to -Dtest.selenium=false so
+                    # the BaseITNG tests self-skip instead of failing on driver init.
+                    #
+                    # set +x silences the ~125-deb extraction noise; restored at end.
+                    set +x
+                    SELENIUM_FLAG=""
+                    DRIVER_SRC=$(find "${TCK_BUNDLE_DIR}" -name ChromeDevtoolsDriver.java -print -quit 2>/dev/null || true)
+                    if [ -z "${RESOLVED_CHROME_VERSION}" ] && [ -n "${DRIVER_SRC}" ]; then
+                        CDP_MAJOR=$(grep -oE "devtools\\.v[0-9]+" "${DRIVER_SRC}" | head -1 | sed 's/devtools.v//')
+                        if [ -n "${CDP_MAJOR}" ]; then
+                            CFT_JSON="https://googlechromelabs.github.io/chrome-for-testing/latest-versions-per-milestone-with-downloads.json"
+                            RESOLVED_CHROME_VERSION=$(wget -qO- "${CFT_JSON}" \
+                                | python3 -c "import json,sys; d=json.load(sys.stdin); m=d['milestones'].get('${CDP_MAJOR}'); print(m['version'] if m else '')")
+                            echo "[chrome-bootstrap] auto-detected: TCK CDP v${CDP_MAJOR} -> Chrome ${RESOLVED_CHROME_VERSION:-<not in CfT>}"
+                        fi
+                    elif [ -n "${RESOLVED_CHROME_VERSION}" ]; then
+                        echo "[chrome-bootstrap] using override Chrome version: ${RESOLVED_CHROME_VERSION}"
+                    fi
+
+                    if [ -n "${RESOLVED_CHROME_VERSION}" ]; then
+                        CFT_URL="https://storage.googleapis.com/chrome-for-testing-public/${RESOLVED_CHROME_VERSION}/linux64/chrome-linux64.zip"
+                        CHROME_DIR="${WORKSPACE}/.chrome-${RESOLVED_CHROME_VERSION}"
+                        if [ ! -x "${CHROME_DIR}/chrome-linux64/chrome" ]; then
+                            echo "[chrome-bootstrap] downloading chrome from ${CFT_URL} ..."
+                            rm -rf "${CHROME_DIR}" && mkdir -p "${CHROME_DIR}"
+                            ( cd "${CHROME_DIR}" && wget -q "${CFT_URL}" && unzip -q chrome-linux64.zip )
+                        else
+                            echo "[chrome-bootstrap] chrome already present, skipping download."
+                        fi
+                        export PATH="${CHROME_DIR}/chrome-linux64:${PATH}"
+
+                        DEPS_DIR="${WORKSPACE}/.chrome-deps"
+                        if [ ! -f "${DEPS_DIR}/.installed" ]; then
+                            rm -rf "${DEPS_DIR}" && mkdir -p "${DEPS_DIR}/debs"
+                            # Ubuntu 24.04 renamed several packages with a 't64' suffix for
+                            # the 64-bit time_t ABI transition. The unsuffixed names still
+                            # exist as transitional dummies but have no installable candidate;
+                            # apt-cache policy reveals that, apt-cache show does not.
+                            pick() {
+                                for name in "$@"; do
+                                    cand=$(apt-cache policy "$name" 2>/dev/null \
+                                           | awk "/Candidate:/ {print \\$2}")
+                                    if [ -n "$cand" ] && [ "$cand" != "(none)" ]; then
+                                        echo "$name"; return 0
+                                    fi
+                                done
+                                echo "ERROR: none of [$*] have an installable version" >&2
+                                return 1
+                            }
+                            DIRECT="libnspr4 libnss3 libxkbcommon0 libxcomposite1 libxdamage1 \
+                                    libxrandr2 libxfixes3 libxshmfence1 libgbm1 \
+                                    libpango-1.0-0 libpangocairo-1.0-0 libcairo2 \
+                                    libdrm2 libexpat1 libuuid1 \
+                                    $(pick libasound2t64         libasound2) \
+                                    $(pick libatspi2.0-0t64      libatspi2.0-0) \
+                                    $(pick libatk1.0-0t64        libatk1.0-0) \
+                                    $(pick libatk-bridge2.0-0t64 libatk-bridge2.0-0) \
+                                    $(pick libcups2t64           libcups2)"
+                            # Expand to the full transitive Depends closure (~125 packages on
+                            # Ubuntu 24.04 noble); apt-get download alone fetches only the
+                            # listed names, leaving Chrome's deps-of-deps (libxcb1, libx11-6,
+                            # libfontconfig1, libfreetype6, ...) unresolved.
+                            CLOSURE=$(apt-cache depends --recurse \
+                                --no-recommends --no-suggests --no-conflicts \
+                                --no-breaks --no-replaces --no-enhances ${DIRECT} \
+                                | grep -v "[<>:]" | grep -v "^$" | sort -u | tr "\\n" " ")
+                            echo "[chrome-bootstrap] downloading $(echo ${CLOSURE} | wc -w) transitive .deb packages..."
+                            # || true: tolerate occasional stale-mirror 404s; the chrome
+                            # --version check below is the actual gate.
+                            ( cd "${DEPS_DIR}/debs" && apt-get download -q=2 ${CLOSURE} >/dev/null 2>&1 || true )
+                            echo "[chrome-bootstrap] extracting $(ls -1 "${DEPS_DIR}/debs"/*.deb | wc -l) packages..."
+                            for d in "${DEPS_DIR}"/debs/*.deb; do dpkg-deb -x "$d" "${DEPS_DIR}"; done
+                            touch "${DEPS_DIR}/.installed"
+                        fi
+                        export LD_LIBRARY_PATH="${DEPS_DIR}/usr/lib/x86_64-linux-gnu:${DEPS_DIR}/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+
+                        # A missing shared lib here is much easier to diagnose than the same
+                        # failure buried in a SessionNotCreatedException from inside surefire.
+                        missing=$(ldd "${CHROME_DIR}/chrome-linux64/chrome" | grep "not found" || true)
+                        if [ -n "${missing}" ]; then
+                            echo "[chrome-bootstrap] ldd reports missing libs:"
+                            echo "${missing}"
+                        fi
+                        echo "[chrome-bootstrap] $(chrome --version)"
+
+                        # Force the TCK's WebDriverManager to fetch a chromedriver matching
+                        # our installed Chrome. Without this, WDM defaults to "latest stable"
+                        # when it cannot detect a system browser, which on a fresh agent
+                        # doesn't match our pinned Chrome.
+                        SELENIUM_FLAG="-Dwdm.chromeDriverVersion=${RESOLVED_CHROME_VERSION}"
+                    else
+                        echo "[chrome-bootstrap] no Chrome resolved -> -Dtest.selenium=false (BaseITNG self-skips)."
+                        SELENIUM_FLAG="-Dtest.selenium=false"
+                    fi
+                    set -x
+
                     if [ -n "${GF_BUNDLE_URL}" ]; then
                         wget -q "${GF_BUNDLE_URL}" -O glassfish.zip
                         mvn ${MVN_EXTRA} install:install-file -Dfile=./glassfish.zip \\
@@ -399,7 +518,7 @@ pipeline {
                     # human-readable summary are deferred to the next stage so a TCK failure fails fast.
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} clean install \\
-                        -DskipOldTCK=true -Dtck.old.skip=true -Dtest.selenium=false \\
+                        -DskipOldTCK=true -Dtck.old.skip=true ${SELENIUM_FLAG} \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
@@ -430,7 +549,7 @@ pipeline {
 
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} org.apache.maven.plugins:maven-site-plugin:3.21.0:site \\
-                        -DskipOldTCK=true -Dtck.old.skip=true -Dtest.selenium=false \\
+                        -DskipOldTCK=true -Dtck.old.skip=true \\
                         -Dmaven.test.skip=true -DskipTests=true \\
                         -DskipAssembly=true -Pstaging \\
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
