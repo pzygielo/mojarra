@@ -422,10 +422,33 @@ pipeline {
                               unzip -q chromedriver-linux64.zip )
                         fi
                         export PATH="${CHROME_DIR}/chrome-linux64:${CHROME_DIR}/chromedriver-linux64:${PATH}"
+
+                        # Eclipse CI agents are minimal Debian-based pods without a browser
+                        # toolchain; Chrome dynamically links against NSS / GTK / X libs that
+                        # aren't installed by default and we have no root. Fetch the missing
+                        # .deb packages with apt-get download (which works as an unprivileged
+                        # user) and extract them into the workspace, then prepend the extracted
+                        # multiarch lib dir to LD_LIBRARY_PATH so Chrome's loader finds them.
+                        # Idempotent: skipped on subsequent runs if the cache already exists.
+                        DEPS_DIR="${WORKSPACE}/.chrome-deps"
+                        if [ ! -f "${DEPS_DIR}/.installed" ]; then
+                            rm -rf "${DEPS_DIR}" && mkdir -p "${DEPS_DIR}/debs"
+                            ( cd "${DEPS_DIR}/debs" && apt-get download \
+                                libnspr4 libnss3 libxkbcommon0 libxcomposite1 libxdamage1 \
+                                libxrandr2 libxfixes3 libxshmfence1 libgbm1 libasound2 \
+                                libpango-1.0-0 libpangocairo-1.0-0 libcairo2 libatspi2.0-0 \
+                                libatk1.0-0 libatk-bridge2.0-0 libcups2 libdrm2 libexpat1 \
+                                libuuid1 )
+                            for d in "${DEPS_DIR}"/debs/*.deb; do dpkg-deb -x "$d" "${DEPS_DIR}"; done
+                            touch "${DEPS_DIR}/.installed"
+                        fi
+                        export LD_LIBRARY_PATH="${DEPS_DIR}/usr/lib/x86_64-linux-gnu:${DEPS_DIR}/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
+
                         # Sanity-check both binaries before the TCK starts; a failure here
-                        # surfaces missing shared libs (libnss3, libxkbcommon0, libgbm1,
-                        # libasound2, ...) up front rather than buried in a
-                        # SessionNotCreatedException from inside surefire.
+                        # surfaces any STILL-missing shared lib up front rather than buried in
+                        # a SessionNotCreatedException from inside surefire. Use ldd output as
+                        # a debug aid when chrome --version itself fails.
+                        ldd "${CHROME_DIR}/chrome-linux64/chrome" | grep -E "not found" || true
                         chrome --version
                         chromedriver --version
                     else
