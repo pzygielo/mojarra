@@ -119,6 +119,15 @@ public class CommandLinkRenderer extends LinkRenderer {
             writer.endElement("span");
         } else {
             writer.endElement("a");
+
+            String target = (String) component.getAttributes().get("target");
+            if (target != null) {
+                target = target.trim();
+            } else {
+                target = "";
+            }
+            Collection<ClientBehaviorContext.Parameter> params = getBehaviorParameters(component);
+            RenderKitUtils.renderOnclickEventListener(context, component, params, target, true);
         }
     }
 
@@ -161,16 +170,6 @@ public class CommandLinkRenderer extends LinkRenderer {
         // render the current value as link text.
         writeValue(command, writer);
         writer.flush();
-
-        String target = (String) command.getAttributes().get("target");
-        if (target != null) {
-            target = target.trim();
-        } else {
-            target = "";
-        }
-
-        Collection<ClientBehaviorContext.Parameter> params = getBehaviorParameters(command);
-        RenderKitUtils.renderOnclickEventListener(context, command, params, target, true);
     }
 
     // --------------------------------------------------------- Private Methods

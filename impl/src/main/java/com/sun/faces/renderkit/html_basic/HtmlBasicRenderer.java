@@ -45,6 +45,7 @@ import com.sun.faces.util.MessageUtils;
 import com.sun.faces.util.Util;
 
 import jakarta.faces.component.NamingContainer;
+import jakarta.faces.component.UICommand;
 import jakarta.faces.component.UIComponent;
 import jakarta.faces.component.UIInput;
 import jakarta.faces.component.UIParameter;
@@ -579,13 +580,16 @@ public abstract class HtmlBasicRenderer extends Renderer {
         // By default we only write the id attribute if:
         //
         // - We have a non-auto-generated id, or...
-        // - We have client behaviors.
+        // - We have client behaviors, or...
+        // - The component is a UICommand (its CSP-style click listener is attached
+        //   via mojarra.ael(clientId, ...) which needs the id on the rendered element).
         //
         // We assume that if client behaviors are present, they
         // may need access to the id (AjaxBehavior certainly does).
 
         String id;
         return null != (id = component.getId()) && (!id.startsWith(UIViewRoot.UNIQUE_ID_PREFIX)
+                || component instanceof UICommand
                 || component instanceof ClientBehaviorHolder && !((ClientBehaviorHolder) component).getClientBehaviors().isEmpty());
     }
 
