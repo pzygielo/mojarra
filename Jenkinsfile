@@ -79,17 +79,17 @@ def GIT_IDENTITY = '''
 def GPG_GIT_INIT = GPG_INIT + GIT_IDENTITY
 
 // Reusable shell snippet: refuse to start the release if origin already carries this version's
-// branch or tag. Recovery for any such conflict is to bump the version and re-run. Setting
-// TAG_ONLY=true skips the branch check (used for milestone/RC runs that never push the branch).
+// branch or tag. The check runs even on dry-runs so a conflict fails fast (minute zero) rather
+// than after burning the whole TCK only to bomb the moment DRY_RUN is flipped off. Recovery for
+// any such conflict is to bump the version and re-run. Setting TAG_ONLY=true skips the branch
+// check (used for milestone/RC runs that never push the branch).
 // Expects bash variables BRANCH_NAME and TAG_NAME to be set in the surrounding script.
 def REMOTE_REF_CONFLICT_CHECK = '''
-    if [ "${DRY_RUN}" != "true" ]; then
-        if [ "${TAG_ONLY:-false}" != "true" ] && git ls-remote --heads origin | grep -q "refs/heads/${BRANCH_NAME}$"; then
-            echo "Release branch ${BRANCH_NAME} already exists on origin; bump the version." >&2; exit 1
-        fi
-        if git ls-remote --tags origin | grep -q "refs/tags/${TAG_NAME}$"; then
-            echo "Release tag ${TAG_NAME} already exists on origin; bump the version." >&2; exit 1
-        fi
+    if [ "${TAG_ONLY:-false}" != "true" ] && git ls-remote --heads origin | grep -q "refs/heads/${BRANCH_NAME}$"; then
+        echo "Release branch ${BRANCH_NAME} already exists on origin; bump the version." >&2; exit 1
+    fi
+    if git ls-remote --tags origin | grep -q "refs/tags/${TAG_NAME}$"; then
+        echo "Release tag ${TAG_NAME} already exists on origin; bump the version." >&2; exit 1
     fi
     git branch -D "${BRANCH_NAME}" 2>/dev/null || true
     git tag    -d "${TAG_NAME}"    2>/dev/null || true
