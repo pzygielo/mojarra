@@ -48,7 +48,7 @@ Maintained in `BRANCH_CONFIG` at the top of the `Jenkinsfile`. Adding a new rele
 | `4.1`   | `4.1`       | — (bundled) | 17        | 21      | 4.1.0       | 4.1.0       | 8.0.0-M6   | on       |
 | `5.0`   | `master`    | `5.0`       | 17        | 21      | 5.0.0       | 5.0.0       | 9.0.0-M2   | on       |
 
-The `Release` column is the dropdown value (the version family). The mojarra git branch holding the impl source is the next column over — `master` for the 5.0 line because the head of mojarra development sits there, not on a `5.x` branch.
+The `Release` column is the release line dropdown value. The mojarra git branch holding the impl source is the next column over — `master` for the 5.0 line because the head of mojarra development sits there, not on a `5.x` branch.
 
 `API version` is the value passed as `-Dfaces.version` to the TCK build (the published `jakarta.faces-api` jar version that the TCK compiles against). On 4.x the API was bundled with the impl, so this is just the GA on Maven Central. On 5.0+ it tracks the standalone `jakarta.faces-api` artifact — bump it together with the matching API release.
 
