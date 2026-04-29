@@ -30,12 +30,12 @@ Oracle, Omnifish, Payara, etceteras)
 ## Minimum Requirements
 
 - Java 17
-- Jakarta Servlet 6.1
-- Jakarta Expression Language 6.0
-- Jakarta CDI 4.1
-- Jakarta Web Socket 2.2 (optional, only when `<f:websocket>` is used)
+- Jakarta Servlet 6.2
+- Jakarta Expression Language 6.1
+- Jakarta CDI 5.0
+- Jakarta Web Socket 2.3 (optional, only when `<f:websocket>` is used)
 - Jakarta JSON Processing  2.1 (optional, only when `<f:websocket>` is used)
-- Jakarta Validation 3.1 (optional, only when `<f:validateBean>` or `<f:validateWholeBean>` is used)
+- Jakarta Validation 4.0 (optional, only when `<f:validateBean>` or `<f:validateWholeBean>` is used)
 
 
 ## Installation
@@ -55,12 +55,13 @@ In case you're manually carrying around JARs:
 
     Add below JARs to `/WEB-INF/lib`:
 
-    - [`jakarta.faces.4.1.x.jar`][9]
-    - [`weld-servlet-shaded-6.0.x.Final.jar`][10]
+    - [`jakarta.faces-api.5.0.x.jar`][9]
+    - [`mojarra.5.0.x.jar`][9A]
+    - [`weld-servlet-shaded-7.0.x.Final.jar`][10]
     - [`jakarta.json-api-2.1.x.jar`][12] (optional, only when `<f:websocket>` is used)
-    - [`jakarta.json-2.1.0.jar`][12a] (optional, only when `<f:websocket>` is used)
-    - [`jakarta.validation-api-3.1.x.jar`][13] (optional, only when `<f:validateBean|validateWholeBean>` is used)
-    - [`hibernate-validator-9.0.x.Final.jar`][14] (optional, only when `<f:validateBean|validateWholeBean>` is used)
+    - [`parsson-1.1.x.jar`][12a] (optional, only when `<f:websocket>` is used)
+    - [`jakarta.validation-api-4.0.x.jar`][13] (optional, only when `<f:validateBean|validateWholeBean>` is used)
+    - [`hibernate-validator-9.1.x.Final.jar`][14] (optional, only when `<f:validateBean|validateWholeBean>` is used)
 
     Substitute `x` with latest version number available.
 
@@ -74,41 +75,37 @@ In case you're using Maven, you can find below the necessary coordinates:
     <dependency>
        <groupId>jakarta.platform</groupId>
        <artifactId>jakarta.jakartaee-api</artifactId>
-       <version>11.0.0</version>
+       <version>12.0.0</version>
        <scope>provided</scope>
     </dependency>
     ```
-
-In case of WildFly/JBoss EAP, just awap the `jakarta.faces-4.1.x.jar` file in server's `/modules/system/layers/base/jakarta/faces/impl/main` folder.
-In case of TomEE, just swap the `myfaces*.jar` files with `jakarta.faces.jar` in the server's `/lib` folder.
-In case of Payara/GlassFish, just swap the `jakarta.faces.jar` file in the server's `/glassfish/modules` folder.
 
 - **Servletcontainers (Tomcat, Jetty, etc)**
 
     ```xml
     <dependency>
         <groupId>org.glassfish</groupId>
-        <artifactId>jakarta.faces</artifactId>
-        <version><!-- Use latest 4.1.x version. --></version>
+        <artifactId>mojarra</artifactId>
+        <version><!-- Use latest 5.0.x version. --></version>
     </dependency>
     <dependency>
         <groupId>org.jboss.weld.servlet</groupId>
         <artifactId>weld-servlet-shaded</artifactId>
-        <version><!-- Use latest 6.0.x version. --></version>
+        <version><!-- Use latest 7.0.x version. --></version>
     </dependency>
     <dependency> <!-- Optional, only when <f:websocket> is used. -->
-        <groupId>org.glassfish</groupId>
-        <artifactId>jakarta.json</artifactId>
-        <version><!-- Use latest 2.1.x version. --></version>
+        <groupId>org.eclipse.parsson</groupId>
+        <artifactId>parsson</artifactId>
+        <version><!-- Use latest 1.1.x version. --></version>
     </dependency>
     <dependency> <!-- Optional, only when <f:validateBean> or <f:validateWholeBean> is used. -->
         <groupId>org.hibernate.validator</groupId>
         <artifactId>hibernate-validator</artifactId>
-        <version><!-- Use latest 9.0.x version. --></version>
+        <version><!-- Use latest 9.1.x version. --></version>
     </dependency>
     ```
 
-You can check [`org.glassfish:jakarta.faces`][16] repository to find the latest Mojarra 4.1.x version.
+You can check [`org.glassfish:mojarra`][16] repository to find the latest Mojarra 5.0.x version.
 
 
 ## Testing
@@ -239,37 +236,36 @@ Instructions for checking out the source, building from source, importing into a
 
 ## Resources
 
-- [Faces 4.1 Specification][21]
-- [Faces 4.1 API documentation][22]
-- [Faces 4.1 VDL documentation][23]
-- [Faces 4.1 JS documentation][24]
-- [What's new in Faces 4.1?][26]
+- [Faces 5.0 Specification][21]
+- [Faces 5.0 API documentation][22]
+- [Faces 5.0 VDL documentation][23]
+- [Faces 5.0 JS documentation][24]
 
+  [1]: https://wildfly.org/
+  [2]: https://developers.redhat.com/products/eap/
+  [3]: https://tomee.apache.org
+  [4]: https://www.payara.fish
+  [5]: https://glassfish.org/
+  [6]: https://www.ibm.com/products/liberty
+  [7]: https://tomcat.apache.org
+  [8]: https://www.eclipse.org/jetty/
 
-  [1]: http://wildfly.org/
-  [2]: https://developers.redhat.com/products/eap/overview/
-  [3]: http://tomee.apache.org
-  [4]: http://www.payara.fish
-  [5]: https://javaee.github.io/glassfish/
-  [6]: https://developer.ibm.com/wasdev/websphere-liberty/
-  [7]: http://tomcat.apache.org
-  [8]: http://www.eclipse.org/jetty/
-
-  [9]: https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/
+  [9]: https://repo1.maven.org/maven2/jakarta/faces/jakarta.faces-api/
+  [9A]: https://repo1.maven.org/maven2/org/glassfish/mojarra/mojarra/
   [10]: https://repo1.maven.org/maven2/org/jboss/weld/servlet/weld-servlet-shaded/
   [11]: https://repo.maven.apache.org/maven2/jakarta/servlet/jsp/jstl/jakarta.servlet.jsp.jstl-api
   [12]: https://repo1.maven.org/maven2/jakarta/json/jakarta.json-api
-  [12A]: https://repo1.maven.org/maven2/org/glassfish/jakarta.json/
+  [12A]: https://repo1.maven.org/maven2/org/eclipse/parsson/parsson/
   [13]: https://repo1.maven.org/maven2/jakarta/validation/jakarta.validation-api
   [14]: https://repo1.maven.org/maven2/org/hibernate/validator/hibernate-validator
   
   [15]: https://stackoverflow.com/q/35899887/157882
-  [16]: http://mvnrepository.com/artifact/org.glassfish/jakarta.faces
+  [16]: https://mvnrepository.com/artifact/org.glassfish.mojarra/mojarra
   [17]: https://stackoverflow.com/q/3008395/157882
   [18]: https://stackoverflow.com/q/5104094/157882
   [19]: https://stackoverflow.com/q/30639785/157882
-  [21]: https://jakarta.ee/specifications/faces/4.1/jakarta-faces-4.1
-  [22]: https://jakarta.ee/specifications/faces/4.1/apidocs/jakarta.faces/module-summary.html
-  [23]: https://jakarta.ee/specifications/faces/4.1/vdldoc/
-  [24]: https://jakarta.ee/specifications/faces/4.1/jsdoc/faces
-  [26]: https://balusc.omnifaces.org/2024/06/whats-new-in-faces-41.html
+  [21]: https://jakarta.ee/specifications/faces/5.0/jakarta-faces-5.0-m1
+  [22]: https://jakarta.ee/specifications/faces/5.0/apidocs/
+  [23]: https://jakarta.ee/specifications/faces/5.0/vdldoc/
+  [24]: https://jakarta.ee/specifications/faces/5.0/tsdoc/
+
