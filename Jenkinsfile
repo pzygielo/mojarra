@@ -174,8 +174,9 @@ spec:
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release) or when MILESTONE_VERSION is set.')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
-        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: '4.x only. Skip the old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run. No-op on 5.0+ where the old-tck module no longer exists.')
+        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: '4.x only. Skip the old-tck JavaTest modules (excluded from the reactor entirely via -pl); cuts at least 2 hours off the TCK run. No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected by this flag.')
         booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push.')
+        booleanParam(name: 'TEST_RUN',    defaultValue: false, description: 'Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one sigtest + one GF-failsafe + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked). Ignored when DRY_RUN is unchecked, since the run is not TCK-conformant and must never be published.')
     }
 
     options {
@@ -285,7 +286,25 @@ spec:
                     // script — its guard is `!containsKey('it.test')`, which we then trigger as a no-op.
                     env.TCK_IT_TEST_FLAGS = cspBackportItTestFlags(env.RELEASE_VERSION)
 
-                    env.SKIP_OLD_TCK_FLAG = params.SKIP_OLD_TCK ? '-Dtck.old.skip=true' : ''
+                    // Skip old-tck by excluding its modules from the reactor entirely (-pl), so
+                    // they aren't even parsed/built — faster and cleaner than -Dtck.old.skip=true,
+                    // which leaves the modules in the reactor and only short-circuits their
+                    // antrun executions. old-tck-selenium is a separate failsafe-driven path and
+                    // is not affected.
+                    env.SKIP_OLD_TCK_FLAG = params.SKIP_OLD_TCK ? '-pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run' : ''
+
+                    // TEST_RUN: smoke-run for iterating on the pipeline itself. Filters failsafe
+                    // ITs to three representative classes and old-tck JavaTest to one small path,
+                    // dropping a 30+ min cycle to ~3 min (or ~12 min with old-tck enabled).
+                    // Hard-gated on DRY_RUN: the filtered run is not TCK-conformant, and must
+                    // never produce a published release.
+                    //   -Dit.test=...   : last `-Dit.test` on the cli wins, overriding the
+                    //                     CSP-backport pattern in TCK_IT_TEST_FLAGS.
+                    //   -Drun.test=...  : antrun config in old-tck/run/pom.xml flips to
+                    //                     `ant runclient -Dmultiple.tests=${run.test}` when set.
+                    env.TEST_RUN_FLAGS = (params.TEST_RUN && params.DRY_RUN) \
+                        ? "-Dit.test='**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java' -Dfailsafe.failIfNoSpecifiedTests=false -Drun.test='com/sun/ts/tests/jsf/api/jakarta_faces/application/facesmessage'" \
+                        : ''
 
                     // Auto-infer SHOULD_BUILD_API from impl/pom.xml's jakarta.faces-api dep version: a
                     // -SNAPSHOT dep means the API is unreleased and must be released alongside; a GA
@@ -338,11 +357,12 @@ spec:
                     def tckLabel = params.RUN_TCK ? "TCK ${env.RESOLVED_TCK_VERSION}" : "TCK skipped"
                     // old-TCK exists only on 4.x; on 5.0+ the module is gone so the flag is a no-op.
                     def skipOldTckLabel = (params.RELEASE_LINE.startsWith('4.') && params.RUN_TCK && params.SKIP_OLD_TCK) ? ', old-TCK skipped' : ''
+                    def testRunLabel = (params.RUN_TCK && params.TEST_RUN && params.DRY_RUN) ? ', test-run' : ''
                     def milestoneLabel = (env.IS_MILESTONE == 'true') ? ', milestone' : ''
                     def dryRunLabel = params.DRY_RUN ? ', dry-run' : ''
                     currentBuild.description = "${params.RELEASE_LINE} → ${env.RELEASE_VERSION}" +
                         ((env.SHOULD_BUILD_API == 'true') ? " + API ${env.RESOLVED_API_VERSION}" : ' (impl-only)') +
-                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${skipOldTckLabel}${milestoneLabel}${dryRunLabel})"
+                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${skipOldTckLabel}${testRunLabel}${milestoneLabel}${dryRunLabel})"
                     if (env.IS_MILESTONE == 'true') {
                         echo "Snapshot: ${env.SNAPSHOT_VERSION} | Milestone: ${env.RELEASE_VERSION} (snapshot left untouched)"
                     } else {
@@ -479,16 +499,6 @@ spec:
                     # failsafe-summary.xml files are then aggregated below to render summary.txt
                     # for the release archive.
                     cd "${TCK_BUNDLE_DIR}/tck"
-                    # TEMP: filtering tests to a tiny subset for fast iteration while validating
-                    # report aggregation across new-TCK + old-tck-selenium + old-tck javatest.
-                    # Revert before merging — drop the two `-Dit.test=...` and `-Drun.test=...`
-                    # lines below. Run SKIP_OLD_TCK=false to actually exercise the old-tck path.
-                    #   -Dit.test=...    : filters new-TCK + old-tck-selenium failsafe ITs
-                    #                      (last `-Dit.test` on the cli wins, so this overrides
-                    #                      ${TCK_IT_TEST_FLAGS}'s CSP-backport pattern)
-                    #   -Drun.test=...   : filters old-tck javatest (the antrun config in
-                    #                      old-tck/run/pom.xml flips to `ant runclient
-                    #                      -Dmultiple.tests=${run.test}` when run.test is set)
                     mvn ${MVN_EXTRA} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
                         -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
@@ -497,8 +507,7 @@ spec:
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${FACES_VERSION}" \\
                         ${TCK_IT_TEST_FLAGS} \\
-                        -Dit.test='**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java' -Dfailsafe.failIfNoSpecifiedTests=false \\
-                        -Drun.test='com/sun/ts/tests/jsf/api/jakarta_faces/application/facesmessage' \\
+                        ${TEST_RUN_FLAGS} \\
                         | tee "${WORKSPACE}/run.log"
 
                     cd "${WORKSPACE}"
@@ -520,7 +529,10 @@ spec:
                         exit 1
                     fi
                     echo "Aggregating $(echo "${SUMMARIES}" | wc -l) failsafe-summary.xml files..."
+                    # Silence trace for the rest of the parse/aggregation as it's quite noisy; restored at end.
                     set +x
+
+                    # Failsafe (new-TCK + old-tck-selenium): per-module XML aggregation.
                     extract() { sed -n "s|.*<$2>\\([0-9]*\\)</$2>.*|\\1|p" "$1" | head -1; }
                     COMPLETED=0; ERRORS=0; FAILED=0
                     for f in ${SUMMARIES}; do
@@ -531,7 +543,7 @@ spec:
                         ERRORS=$(( ERRORS + e ))
                         FAILED=$(( FAILED + F ))
                     done
-                    set -x
+                    echo "TCK results: completed=${COMPLETED} failed=${FAILED} errors=${ERRORS}"
 
                     # Old-tck (ant/JavaTest harness) doesn't write failsafe-summary.xml; its summary
                     # lands in run.log as four canonical lines emitted by the harness:
@@ -547,12 +559,13 @@ spec:
                         OLD_PASSED=$(old_count "Number of Tests Passed");      OLD_PASSED=${OLD_PASSED:-0}
                         OLD_FAILED=$(old_count "Number of Tests Failed");      OLD_FAILED=${OLD_FAILED:-0}
                         OLD_ERRORS=$(old_count "Number of Tests with Errors"); OLD_ERRORS=${OLD_ERRORS:-0}
-                        echo "Old-tck contribution: passed=${OLD_PASSED} failed=${OLD_FAILED} errors=${OLD_ERRORS}"
+                        echo "Old-TCK results: passed=${OLD_PASSED} failed=${OLD_FAILED} errors=${OLD_ERRORS}"
                         COMPLETED=$(( COMPLETED + OLD_PASSED + OLD_FAILED + OLD_ERRORS ))
                         ERRORS=$(( ERRORS + OLD_ERRORS ))
                         FAILED=$(( FAILED + OLD_FAILED ))
                     fi
                     PASSED=$(( COMPLETED - ERRORS - FAILED ))
+                    set -x
 
                     {
                         echo "******************************************************"
