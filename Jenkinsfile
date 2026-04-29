@@ -9,7 +9,8 @@
 //   -> TCK
 //   -> Deploy to Maven Central (skipped on DRY_RUN)
 //   -> Bump to next snapshot
-//   -> Publish to GitHub (skipped on DRY_RUN)
+//   -> Publish to GitHub: push release branch+tag, then open & squash-merge a PR back to the
+//      source branch via gh CLI (skipped on DRY_RUN)
 //
 // Maven Central deploy and GitHub push BOTH run only after the TCK passes,
 // so a TCK failure leaves no half-published external state.
@@ -140,7 +141,8 @@ pipeline {
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release).')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
-        booleanParam(name: 'DRY_RUN',     defaultValue: false, description: 'Skip Maven Central deploy and GitHub push (locally installs the artifacts instead). Run TCK against the local install.')
+        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: true, description: 'Skip the legacy old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run. Only meaningful on 4.0/4.1; on 5.0 the old TCK was migrated to Selenium in faces20 and this flag is a no-op.')
+        booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push (locally installs the artifacts instead). Run TCK against the local install.')
         booleanParam(name: 'OVERWRITE',   defaultValue: false, description: 'Allow overwriting existing release branch/tag in GitHub.')
     }
 
@@ -245,6 +247,10 @@ pipeline {
                     // pre-set `it.test` makes the script's `!containsKey('it.test')` guard a no-op — safe.
                     env.TCK_IT_TEST_FLAGS = cspBackportItTestFlags(env.RELEASE_VERSION)
 
+                    // Skip old TCK on 4.0 and 4.1. On 5.0 the old-tck module was removed (migrated to Selenium
+                    // under faces20), so this flag has no effect there.
+                    env.SKIP_OLD_TCK_FLAG = params.SKIP_OLD_TCK ? '-Dtck.old.skip=true' : ''
+
                     // Auto-infer SHOULD_BUILD_API from impl/pom.xml's jakarta.faces-api dep version.
                     // Rule: if the dep is a -SNAPSHOT, the API is unreleased relative to this impl release
                     // and must be released alongside; if it's a GA version, the API is already on Maven
@@ -255,6 +261,7 @@ pipeline {
                         if (apiDepVersion == '') {
                             error "impl/pom.xml does not declare a jakarta.faces-api dependency. Cannot determine whether to release the API."
                         }
+                        env.IMPL_API_DEP_VERSION = apiDepVersion
                         if (apiDepVersion.endsWith('-SNAPSHOT')) {
                             env.SHOULD_BUILD_API = 'true'
                         } else if (apiDepVersion ==~ /\d+\.\d+\.\d+(\.\d+)*/) {
@@ -534,7 +541,7 @@ pipeline {
                     # human-readable summary are deferred to the next stage so a TCK failure fails fast.
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} clean install \\
-                        -DskipOldTCK=true -Dtck.old.skip=true ${SELENIUM_FLAG} \\
+                        ${SKIP_OLD_TCK_FLAG} ${SELENIUM_FLAG} \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
@@ -565,7 +572,7 @@ pipeline {
 
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} org.apache.maven.plugins:maven-site-plugin:3.21.0:site \\
-                        -DskipOldTCK=true -Dtck.old.skip=true \\
+                        ${SKIP_OLD_TCK_FLAG} \\
                         -Dmaven.test.skip=true -DskipTests=true \\
                         -DskipAssembly=true -Pstaging \\
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
@@ -681,6 +688,96 @@ pipeline {
                                 sh '''#!/bin/bash -ex
                                     git push origin "${API_RELEASE_BRANCH}"
                                     git push origin "${API_RELEASE_TAG}"
+                                '''
+                            }
+                        }
+                    }
+                }
+                // Open a PR from the release branch to the source branch and squash-merge it, so the
+                // "Prepare release" + "Prepare next development cycle" commits land as a single commit
+                // titled "<version> has been released" on the source branch (e.g. 4.0.17 -> 4.0). The
+                // tag still references the original commits on the release branch, which we keep.
+                // For the API repo, only PR-merge when impl/pom.xml's jakarta.faces-api dep matches
+                // faces/api/pom.xml's version (i.e. impl + api are in lockstep this release); if they
+                // diverge we still push the API release branch but skip the PR-merge to avoid landing
+                // an unrelated version on the API source branch.
+                withCredentials([string(credentialsId: 'github-bot-token', variable: 'GH_TOKEN')]) {
+                    sh '''#!/bin/bash -ex
+                        gh pr create --base "${BRANCH}" --head "${RELEASE_BRANCH}" \\
+                            --title "Mojarra ${RELEASE_VERSION} has been released" \\
+                            --body "${BUILD_URL}"
+                        gh pr merge "${RELEASE_BRANCH}" --squash \\
+                            --subject "Mojarra ${RELEASE_VERSION} has been released" \\
+                            --body "${BUILD_URL}"
+                    '''
+                    // Close the milestone for the just-released version (if it exists), open a milestone
+                    // for the next snapshot, and draft+publish a GitHub release at the just-pushed tag
+                    // with auto-generated notes prepended by a one-line summary, the Maven Central link,
+                    // and a link to the closed milestone. Mojarra-only: the jakartaee/faces repo doesn't
+                    // track per-impl-release milestones or GitHub releases. Best-effort on milestones —
+                    // a missing/pre-existing milestone must not fail the publish stage; the artifact is
+                    // already on Maven Central. --latest=false leaves the "Set as the latest release"
+                    // box unchecked (we may release patches across multiple branches in any order).
+                    sh '''#!/bin/bash -ex
+                        NEXT_MILESTONE="${NEXT_VERSION%-SNAPSHOT}"
+                        REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+
+                        MILESTONE_NUMBER=$(gh api "repos/{owner}/{repo}/milestones?state=open&per_page=100" \\
+                            --jq ".[] | select(.title==\\"${RELEASE_VERSION}\\") | .number")
+                        if [ -n "${MILESTONE_NUMBER}" ]; then
+                            gh api -X PATCH "repos/{owner}/{repo}/milestones/${MILESTONE_NUMBER}" -f state=closed
+                        else
+                            echo "No open milestone titled '${RELEASE_VERSION}' to close; skipping."
+                        fi
+
+                        if gh api "repos/{owner}/{repo}/milestones?state=all&per_page=100" \\
+                                --jq ".[] | select(.title==\\"${NEXT_MILESTONE}\\") | .number" | grep -q .; then
+                            echo "Milestone '${NEXT_MILESTONE}' already exists; skipping create."
+                        else
+                            gh api -X POST "repos/{owner}/{repo}/milestones" -f title="${NEXT_MILESTONE}"
+                        fi
+
+                        # Find the previous *-RELEASE tag in the same major.minor family to anchor the
+                        # auto-generated notes. Without this, GitHub picks the most recent semver tag
+                        # repo-wide, which may belong to a different release line (e.g. 4.1.x while
+                        # releasing 4.0.x).
+                        PREVIOUS_TAG=$(git tag -l "${VERSION_FAMILY}.*-RELEASE" \\
+                            | grep -v "^${RELEASE_TAG}$" | sort -V | tail -1)
+                        if [ -n "${PREVIOUS_TAG}" ]; then
+                            GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
+                                -f tag_name="${RELEASE_TAG}" -f target_commitish="${BRANCH}" \\
+                                -f previous_tag_name="${PREVIOUS_TAG}" --jq .body)
+                        else
+                            GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
+                                -f tag_name="${RELEASE_TAG}" -f target_commitish="${BRANCH}" --jq .body)
+                        fi
+
+                        {
+                            echo "${RELEASE_VERSION} has been released"
+                            echo
+                            echo "Maven Central: https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/${RELEASE_VERSION}/"
+                            if [ -n "${MILESTONE_NUMBER}" ]; then
+                                echo "Milestone: https://github.com/${REPO_SLUG}/milestone/${MILESTONE_NUMBER}?closed=1"
+                            fi
+                            echo
+                            echo "${GENERATED}"
+                        } > release-notes.md
+
+                        gh release create "${RELEASE_TAG}" --target "${BRANCH}" \\
+                            --title "${RELEASE_VERSION}" \\
+                            --notes-file release-notes.md \\
+                            --latest=false
+                    '''
+                    script {
+                        if (env.SHOULD_BUILD_API == 'true' && env.IMPL_API_DEP_VERSION == env.API_SNAPSHOT_VERSION) {
+                            dir('faces') {
+                                sh '''#!/bin/bash -ex
+                                    gh pr create --base "${API_BRANCH}" --head "${API_RELEASE_BRANCH}" \\
+                                        --title "Faces API ${RESOLVED_API_VERSION} has been released" \\
+                                        --body "${BUILD_URL}"
+                                    gh pr merge "${API_RELEASE_BRANCH}" --squash \\
+                                        --subject "Faces API ${RESOLVED_API_VERSION} has been released" \\
+                                        --body "${BUILD_URL}"
                                 '''
                             }
                         }
