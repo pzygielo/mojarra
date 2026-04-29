@@ -21,13 +21,18 @@
 // but does NOT publish.
 //
 
-// JDK install root layout on Eclipse CI: /opt/tools/java/<prefix>/jdk-<N>/latest. Prefix is a
-// function of major version, used for both the build JDK and the TCK JDK.
-def JAVA_PREFIX_BY_JDK = [
+// JDK install root layout on Eclipse CI: /opt/tools/java/<distro>/jdk-<N>/latest. The distro
+// (Adoptium "temurin" vs. the OpenJDK reference build) is a function of the major version, used
+// for both the build JDK and the TCK JDK.
+def JDK_DISTRO_BY_VERSION = [
     '11': 'openjdk',
     '17': 'openjdk',
     '21': 'temurin',
+    '25': 'temurin',
 ]
+
+// Choices for the JDK / TCK_JDK params; "" is the "auto-infer from BRANCH" sentinel.
+def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 
 // ---- Per-branch configuration ---------------------------------------------
 // Adding a new release line = one entry here.
@@ -155,9 +160,9 @@ spec:
                description: 'Branch to release. master is currently 5.0.')
         string(name: 'MILESTONE_VERSION', defaultValue: '',
                description: 'Leave blank for a GA release; otherwise the suffix for a milestone/RC release. Must match ^(M|RC)[0-9]+$ (e.g. M1, M2, RC1). When set, the release version is auto-derived as <pom-base-version>-<MILESTONE_VERSION> (e.g. 5.0.0-M2), tagged exactly that (no -RELEASE suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.')
-        choice(name: 'JDK',             choices: ['', '11', '17', '21'],
+        choice(name: 'JDK',             choices: JDK_VERSION_CHOICES,
                description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1, 17 for master). This is the JDK used to run the build & install.')
-        choice(name: 'TCK_JDK',         choices: ['', '11', '17', '21'],
+        choice(name: 'TCK_JDK',         choices: JDK_VERSION_CHOICES,
                description: 'Leave blank to auto-infer from BRANCH (17 for 4.0, 21 for 4.1 and master). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
         string(name: 'TCK_VERSION',     defaultValue: '',
                description: 'Leave blank to auto-infer from BRANCH.')
@@ -203,14 +208,14 @@ spec:
                     env.FACES_VERSION        = cfg.facesVersion
                     env.VERSION_FAMILY       = cfg.versionFamily
                     env.API_BRANCH           = cfg.apiBranch ?: ''
-                    if (!JAVA_PREFIX_BY_JDK.containsKey(env.RESOLVED_JDK)) {
-                        error "No JDK install prefix configured for JDK ${env.RESOLVED_JDK}. Update JAVA_PREFIX_BY_JDK at the top of Jenkinsfile."
+                    if (!JDK_DISTRO_BY_VERSION.containsKey(env.RESOLVED_JDK)) {
+                        error "No JDK distro configured for JDK ${env.RESOLVED_JDK}. Update JDK_DISTRO_BY_VERSION at the top of Jenkinsfile."
                     }
-                    if (!JAVA_PREFIX_BY_JDK.containsKey(env.RESOLVED_TCK_JDK)) {
-                        error "No JDK install prefix configured for TCK JDK ${env.RESOLVED_TCK_JDK}. Update JAVA_PREFIX_BY_JDK at the top of Jenkinsfile."
+                    if (!JDK_DISTRO_BY_VERSION.containsKey(env.RESOLVED_TCK_JDK)) {
+                        error "No JDK distro configured for TCK JDK ${env.RESOLVED_TCK_JDK}. Update JDK_DISTRO_BY_VERSION at the top of Jenkinsfile."
                     }
-                    env.JAVA_HOME      = "${env.TOOLS_PREFIX}/java/${JAVA_PREFIX_BY_JDK[env.RESOLVED_JDK]}/jdk-${env.RESOLVED_JDK}/latest"
-                    env.TCK_JAVA_HOME  = "${env.TOOLS_PREFIX}/java/${JAVA_PREFIX_BY_JDK[env.RESOLVED_TCK_JDK]}/jdk-${env.RESOLVED_TCK_JDK}/latest"
+                    env.JAVA_HOME      = "${env.TOOLS_PREFIX}/java/${JDK_DISTRO_BY_VERSION[env.RESOLVED_JDK]}/jdk-${env.RESOLVED_JDK}/latest"
+                    env.TCK_JAVA_HOME  = "${env.TOOLS_PREFIX}/java/${JDK_DISTRO_BY_VERSION[env.RESOLVED_TCK_JDK]}/jdk-${env.RESOLVED_TCK_JDK}/latest"
                     env.PATH           = "${env.MVN_HOME}/bin:${env.JAVA_HOME}/bin:${env.PATH}"
 
                     sh 'java -version && mvn -v'
