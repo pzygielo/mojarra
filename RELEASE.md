@@ -46,7 +46,7 @@ Maintained in `BRANCH_CONFIG` at the top of the `Jenkinsfile`. Adding a new rele
 | Release | Impl branch | API branch  | Build JDK | TCK JDK | API version | TCK version | GF version | Selenium |
 | ------- | ----------- | ----------- | --------- | ------- | ----------- | ----------- | ---------- | -------- |
 | `4.0`   | `4.0`       | — (bundled) | 11        | 11      | 4.0.1       | 4.0.3       | 7.0.25     | off      |
-| `4.1`   | `4.1`       | — (bundled) | 17        | 21      | 4.1.0       | 4.1.0       | 8.0.0-M6   | on       |
+| `4.1`   | `4.1`       | — (bundled) | 17        | 21      | 4.1.0       | 4.1.0       | 8.0.1      | on       |
 | `5.0`   | `master`    | `5.0`       | 17        | 21      | 5.0.0       | 5.0.0       | 9.0.0-M2   | on       |
 
 The `Release` column is the release line dropdown value. The mojarra git branch holding the impl source is the next column over — `master` for the 5.0 line because the head of mojarra development sits there, not on a `5.x` branch.
