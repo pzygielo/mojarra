@@ -329,11 +329,13 @@ spec:
                         ? "JDK${env.RESOLVED_JDK}"
                         : "JDK${env.RESOLVED_JDK}/TCK-JDK${env.RESOLVED_TCK_JDK}"
                     def tckLabel = params.RUN_TCK ? "TCK ${env.RESOLVED_TCK_VERSION}" : "TCK skipped"
+                    // old-TCK exists only on 4.x; on 5.0+ the module is gone so the flag is a no-op.
+                    def skipOldTckLabel = (cfg.versionFamily.startsWith('4.') && params.RUN_TCK && params.SKIP_OLD_TCK) ? ', old-TCK skipped' : ''
                     def milestoneLabel = (env.IS_MILESTONE == 'true') ? ', milestone' : ''
                     def dryRunLabel = params.DRY_RUN ? ', dry-run' : ''
                     currentBuild.description = "${params.BRANCH} → ${env.RELEASE_VERSION}" +
                         ((env.SHOULD_BUILD_API == 'true') ? " + API ${env.RESOLVED_API_VERSION}" : ' (impl-only)') +
-                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${milestoneLabel}${dryRunLabel})"
+                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${skipOldTckLabel}${milestoneLabel}${dryRunLabel})"
                     if (env.IS_MILESTONE == 'true') {
                         echo "Snapshot: ${env.SNAPSHOT_VERSION} | Milestone: ${env.RELEASE_VERSION} (snapshot left untouched)"
                     } else {
