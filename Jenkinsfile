@@ -492,7 +492,15 @@ spec:
                         | tee "${WORKSPACE}/run.log"
 
                     cd "${WORKSPACE}"
-                    REPORT="${TCK_BUNDLE_DIR}/tck/target/reports/failsafe.html"
+                    # The aggregated failsafe HTML's path differs by maven-surefire-report-plugin
+                    # version: newer (3.5+) writes target/reports/failsafe.html, older writes
+                    # target/site/failsafe-report.html. Locate it instead of hardcoding.
+                    REPORT=$(find "${TCK_BUNDLE_DIR}/tck/target" -maxdepth 3 \
+                        \\( -name 'failsafe.html' -o -name 'failsafe-report.html' \\) | head -1)
+                    if [ -z "${REPORT}" ]; then
+                        echo "Aggregated failsafe report not found under ${TCK_BUNDLE_DIR}/tck/target" >&2
+                        exit 1
+                    fi
                     awk '/<table/{in_table=1}
                          in_table && /Package/{exit}
                          in_table && /<td/ {sub(/.*<td[^>]*>/,""); sub(/<\\/td>.*/,""); print}' \\
