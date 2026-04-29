@@ -479,20 +479,26 @@ spec:
                     # failsafe-summary.xml files are then aggregated below to render summary.txt
                     # for the release archive.
                     cd "${TCK_BUNDLE_DIR}/tck"
-                    # TEMP: filtering ITs to a tiny subset (sigtest + one GF-based + one
-                    # old-tck-selenium) for fast iteration while validating the multi-module
-                    # failsafe-summary.xml aggregation. Revert before merging — drop the
-                    # `-Dit.test=** -Dfailsafe.failIfNoSpecifiedTests=false` line below.
+                    # TEMP: filtering tests to a tiny subset for fast iteration while validating
+                    # report aggregation across new-TCK + old-tck-selenium + old-tck javatest.
+                    # Revert before merging — drop the two `-Dit.test=...` and `-Drun.test=...`
+                    # lines below. Run SKIP_OLD_TCK=false to actually exercise the old-tck path.
+                    #   -Dit.test=...    : filters new-TCK + old-tck-selenium failsafe ITs
+                    #                      (last `-Dit.test` on the cli wins, so this overrides
+                    #                      ${TCK_IT_TEST_FLAGS}'s CSP-backport pattern)
+                    #   -Drun.test=...   : filters old-tck javatest (the antrun config in
+                    #                      old-tck/run/pom.xml flips to `ant runclient
+                    #                      -Dmultiple.tests=${run.test}` when run.test is set)
                     mvn ${MVN_EXTRA} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
                         -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
-                        -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${FACES_VERSION}" \\
                         ${TCK_IT_TEST_FLAGS} \\
                         -Dit.test='**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java' -Dfailsafe.failIfNoSpecifiedTests=false \\
+                        -Drun.test='com/sun/ts/tests/jsf/api/jakarta_faces/application/facesmessage' \\
                         | tee "${WORKSPACE}/run.log"
 
                     cd "${WORKSPACE}"
@@ -513,6 +519,8 @@ spec:
                         echo "No failsafe-summary.xml files found under ${TCK_BUNDLE_DIR}/tck." >&2
                         exit 1
                     fi
+                    echo "Aggregating $(echo "${SUMMARIES}" | wc -l) failsafe-summary.xml files..."
+                    set +x
                     extract() { sed -n "s|.*<$2>\\([0-9]*\\)</$2>.*|\\1|p" "$1" | head -1; }
                     COMPLETED=0; ERRORS=0; FAILED=0
                     for f in ${SUMMARIES}; do
@@ -523,6 +531,27 @@ spec:
                         ERRORS=$(( ERRORS + e ))
                         FAILED=$(( FAILED + F ))
                     done
+                    set -x
+
+                    # Old-tck (ant/JavaTest harness) doesn't write failsafe-summary.xml; its summary
+                    # lands in run.log as four canonical lines emitted by the harness:
+                    #   Completed running N tests.
+                    #   Number of Tests Passed      = N
+                    #   Number of Tests Failed      = N
+                    #   Number of Tests with Errors = N
+                    # Take the last occurrence (in case the harness ran more than once) and fold its
+                    # counts into the totals. No-op when SKIP_OLD_TCK=true or on 5.0+.
+                    OLD_TCK_LINE=$(grep -E "Completed running [0-9]+ tests" "${WORKSPACE}/run.log" | tail -1 || true)
+                    if [ -n "${OLD_TCK_LINE}" ]; then
+                        old_count() { grep -E "$1" "${WORKSPACE}/run.log" | tail -1 | sed -E "s/.*=[[:space:]]*([0-9]+).*/\\1/"; }
+                        OLD_PASSED=$(old_count "Number of Tests Passed");      OLD_PASSED=${OLD_PASSED:-0}
+                        OLD_FAILED=$(old_count "Number of Tests Failed");      OLD_FAILED=${OLD_FAILED:-0}
+                        OLD_ERRORS=$(old_count "Number of Tests with Errors"); OLD_ERRORS=${OLD_ERRORS:-0}
+                        echo "Old-tck contribution: passed=${OLD_PASSED} failed=${OLD_FAILED} errors=${OLD_ERRORS}"
+                        COMPLETED=$(( COMPLETED + OLD_PASSED + OLD_FAILED + OLD_ERRORS ))
+                        ERRORS=$(( ERRORS + OLD_ERRORS ))
+                        FAILED=$(( FAILED + OLD_FAILED ))
+                    fi
                     PASSED=$(( COMPLETED - ERRORS - FAILED ))
 
                     {
