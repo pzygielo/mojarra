@@ -17,8 +17,8 @@ In the example below we assume releasing **Mojarra 4.0.17**.
 
 1. Sanity-check the version isn't already in [Maven Central](https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/) — if it is, bump the version in `pom.xml` first.
 2. Go to [Mojarra CI](https://ci.eclipse.org/mojarra/) and [log in](https://ci.eclipse.org/mojarra/login?from=%2Fmojarra%2F).
-3. Open the [`mojarra-release`](https://ci.eclipse.org/mojarra/job/mojarra-release/) job and click **Build with parameters**. For a normal release set only `RELEASE`; every other parameter can be left at its default and is auto-inferred:
-   - `RELEASE` = `4.0` (choices: `4.0`, `4.1`, `5.0`)
+3. Open the [`mojarra-release`](https://ci.eclipse.org/mojarra/job/mojarra-release/) job and click **Build with parameters**. For a normal release set only `RELEASE_LINE`; every other parameter can be left at its default and is auto-inferred:
+   - `RELEASE_LINE` = `4.0` (choices: `4.0`, `4.1`, `5.0`)
 4. *(Optional)* In case you wish to fine-tune the run, override one or more of:
    - `MILESTONE_VERSION` — leave blank for a GA release; set to `M1` / `M2` / `RC1` / etc. for a milestone or release candidate. When set, the release version is auto-derived as `<pom-base>-<MILESTONE_VERSION>` (e.g. `5.0.0-M2`), tagged exactly that (no `-RELEASE` suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.
    - `JDK` — build JDK. Default: per-branch (see table below).
