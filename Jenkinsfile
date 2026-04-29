@@ -35,17 +35,18 @@ def JDK_DISTRO_BY_VERSION = [
 def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 
 // ---- Per-branch configuration ---------------------------------------------
-// Adding a new release line = one entry here.
+// Adding a new release line = one entry here. The map key is the MAJOR.MINOR version family the
+// release line represents (also used as the path segment on download.eclipse.org/jakartaee/faces/
+// and as the required prefix for RELEASE_VERSION). It deliberately differs from the actual
+// mojarra git branch — the head of mojarra development sits on `master`, not on a `5.x` branch.
 //
 // Fields:
-//   versionFamily   : MAJOR.MINOR family this branch represents (mojarra "master" maps to "5.0").
-//                     Used as the path segment on download.eclipse.org/jakartaee/faces/<here>/
-//                     and as the required prefix for RELEASE_VERSION.
+//   implBranch      : mojarra git branch holding the impl source for this release line.
+//   apiBranch       : faces-repo branch for the standalone jakarta.faces-api jar (null when no
+//                     separate API artifact exists for this release line). Must match .gitmodules.
 //   jdk             : major JDK version used to build the impl (per Faces spec).
 //   tckJdk          : major JDK version used to run the TCK. Differs from jdk when the GlassFish
 //                     container needs a newer JDK than the spec.
-//   apiBranch       : faces-repo branch for the standalone jakarta.faces-api jar (null when no
-//                     separate API artifact exists for this branch). Must match .gitmodules.
 //   facesVersion    : -Dfaces.version passed to the TCK build.
 //   tckVersion      : Faces TCK release version.
 //   gfVersion       : GlassFish Maven coordinate version used by the TCK.
@@ -53,9 +54,9 @@ def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 //                     current Chrome; set false for branches whose TCK pins a CDP major outside
 //                     Selenium's fudge range (e.g. 4.0 pins CDP v108).
 def BRANCH_CONFIG = [
-    '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'  , seleniumEnabled: false ],
-    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
-    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
+    '4.0': [ implBranch: '4.0',    apiBranch: null,  jdk: '11', tckJdk: '11', facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'  , seleniumEnabled: false ],
+    '4.1': [ implBranch: '4.1',    apiBranch: null,  jdk: '17', tckJdk: '21', facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
+    '5.0': [ implBranch: 'master', apiBranch: '5.0', jdk: '17', tckJdk: '21', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent. Required wherever the build
@@ -156,8 +157,8 @@ spec:
     }
 
     parameters {
-        choice(name: 'BRANCH',          choices: ['4.0', '4.1', 'master'],
-               description: 'Branch to release. master is currently 5.0.')
+        choice(name: 'BRANCH',          choices: ['4.0', '4.1', '5.0'],
+               description: 'Release line to cut.')
         string(name: 'MILESTONE_VERSION', defaultValue: '',
                description: 'Leave blank for a GA release; otherwise the suffix for a milestone/RC release. Must match ^(M|RC)[0-9]+$ (e.g. M1, M2, RC1). When set, the release version is auto-derived as <pom-base-version>-<MILESTONE_VERSION> (e.g. 5.0.0-M2), tagged exactly that (no -RELEASE suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.')
         choice(name: 'JDK',             choices: JDK_VERSION_CHOICES,
@@ -206,7 +207,7 @@ spec:
                     env.RESOLVED_GF_VERSION  = params.GF_VERSION?.trim()  ?: cfg.gfVersion
                     env.SELENIUM_ENABLED     = cfg.seleniumEnabled ? 'true' : 'false'
                     env.FACES_VERSION        = cfg.facesVersion
-                    env.VERSION_FAMILY       = cfg.versionFamily
+                    env.IMPL_BRANCH          = cfg.implBranch
                     env.API_BRANCH           = cfg.apiBranch ?: ''
                     if (!JDK_DISTRO_BY_VERSION.containsKey(env.RESOLVED_JDK)) {
                         error "No JDK distro configured for JDK ${env.RESOLVED_JDK}. Update JDK_DISTRO_BY_VERSION at the top of Jenkinsfile."
@@ -224,7 +225,7 @@ spec:
                 // tracking the configured branch tip rather than the recorded SHA — the release should
                 // pull the latest API code, not whatever was pinned at last commit.
                 checkout([$class: 'GitSCM',
-                    branches: [[name: "*/${params.BRANCH}"]],
+                    branches: [[name: "*/${env.IMPL_BRANCH}"]],
                     userRemoteConfigs: [[url: 'git@github.com:eclipse-ee4j/mojarra.git',
                                          credentialsId: 'github-bot-ssh']],
                     extensions: [
@@ -270,7 +271,7 @@ spec:
                     } else {
                         env.IS_MILESTONE    = 'false'
                         env.RELEASE_VERSION = baseVersion
-                        requireGaVersion('RELEASE_VERSION', env.RELEASE_VERSION, cfg.versionFamily)
+                        requireGaVersion('RELEASE_VERSION', env.RELEASE_VERSION, params.BRANCH)
                         env.NEXT_VERSION    = bumpLastComponent(env.RELEASE_VERSION) + '-SNAPSHOT'
                         env.RELEASE_TAG     = "${env.RELEASE_VERSION}-RELEASE"
                         env.RELEASE_BRANCH  = env.RELEASE_VERSION
@@ -335,7 +336,7 @@ spec:
                         : "JDK${env.RESOLVED_JDK}/TCK-JDK${env.RESOLVED_TCK_JDK}"
                     def tckLabel = params.RUN_TCK ? "TCK ${env.RESOLVED_TCK_VERSION}" : "TCK skipped"
                     // old-TCK exists only on 4.x; on 5.0+ the module is gone so the flag is a no-op.
-                    def skipOldTckLabel = (cfg.versionFamily.startsWith('4.') && params.RUN_TCK && params.SKIP_OLD_TCK) ? ', old-TCK skipped' : ''
+                    def skipOldTckLabel = (params.BRANCH.startsWith('4.') && params.RUN_TCK && params.SKIP_OLD_TCK) ? ', old-TCK skipped' : ''
                     def milestoneLabel = (env.IS_MILESTONE == 'true') ? ', milestone' : ''
                     def dryRunLabel = params.DRY_RUN ? ', dry-run' : ''
                     currentBuild.description = "${params.BRANCH} → ${env.RELEASE_VERSION}" +
@@ -451,7 +452,7 @@ spec:
                     mkdir -p download
                     TCK_BUNDLE_NAME="jakarta-faces-tck-${RESOLVED_TCK_VERSION}"
                     TCK_BUNDLE_DIR="faces-tck-${RESOLVED_TCK_VERSION}"
-                    TCK_URL="https://download.eclipse.org/jakartaee/faces/${VERSION_FAMILY}/${TCK_BUNDLE_NAME}.zip"
+                    TCK_URL="https://download.eclipse.org/jakartaee/faces/${BRANCH}/${TCK_BUNDLE_NAME}.zip"
 
                     wget -q "${TCK_URL}" -O "download/${TCK_BUNDLE_NAME}.zip"
                     unzip -q -o "download/${TCK_BUNDLE_NAME}.zip"
@@ -611,7 +612,7 @@ spec:
                     if (env.IS_MILESTONE != 'true') {
                         withCredentials([string(credentialsId: 'github-bot-token', variable: 'GH_TOKEN')]) {
                             sh '''#!/bin/bash -ex
-                                gh pr create --base "${BRANCH}" --head "${RELEASE_BRANCH}" \\
+                                gh pr create --base "${IMPL_BRANCH}" --head "${RELEASE_BRANCH}" \\
                                     --title "Mojarra ${RELEASE_VERSION} has been released" \\
                                     --body "${BUILD_URL}"
                                 gh pr merge "${RELEASE_BRANCH}" --squash \\
@@ -646,15 +647,15 @@ spec:
                                 # Anchor the auto-generated notes to the previous *-RELEASE tag in the same
                                 # major.minor family; otherwise GitHub picks the most recent semver tag
                                 # repo-wide, which may belong to a different release line.
-                                PREVIOUS_TAG=$(git tag -l "${VERSION_FAMILY}.*-RELEASE" \\
+                                PREVIOUS_TAG=$(git tag -l "${BRANCH}.*-RELEASE" \\
                                     | grep -v "^${RELEASE_TAG}$" | sort -V | tail -1)
                                 if [ -n "${PREVIOUS_TAG}" ]; then
                                     GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
-                                        -f tag_name="${RELEASE_TAG}" -f target_commitish="${BRANCH}" \\
+                                        -f tag_name="${RELEASE_TAG}" -f target_commitish="${IMPL_BRANCH}" \\
                                         -f previous_tag_name="${PREVIOUS_TAG}" --jq .body)
                                 else
                                     GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
-                                        -f tag_name="${RELEASE_TAG}" -f target_commitish="${BRANCH}" --jq .body)
+                                        -f tag_name="${RELEASE_TAG}" -f target_commitish="${IMPL_BRANCH}" --jq .body)
                                 fi
 
                                 {
@@ -668,7 +669,7 @@ spec:
                                     echo "${GENERATED}"
                                 } > release-notes.md
 
-                                gh release create "${RELEASE_TAG}" --target "${BRANCH}" \\
+                                gh release create "${RELEASE_TAG}" --target "${IMPL_BRANCH}" \\
                                     --title "${RELEASE_VERSION}" \\
                                     --notes-file release-notes.md \\
                                     --latest=false
