@@ -31,7 +31,7 @@ def JDK_DISTRO_BY_VERSION = [
     '25': 'temurin',
 ]
 
-// Choices for the JDK / TCK_JDK params; "" is the "auto-infer from BRANCH" sentinel.
+// Choices for the JDK / TCK_JDK params; "" is the "auto-infer from RELEASE" sentinel.
 def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 
 // ---- Per-branch configuration ---------------------------------------------
@@ -157,18 +157,18 @@ spec:
     }
 
     parameters {
-        choice(name: 'BRANCH',          choices: ['4.0', '4.1', '5.0'],
+        choice(name: 'RELEASE',         choices: ['4.0', '4.1', '5.0'],
                description: 'Release line to cut.')
         string(name: 'MILESTONE_VERSION', defaultValue: '',
                description: 'Leave blank for a GA release; otherwise the suffix for a milestone/RC release. Must match ^(M|RC)[0-9]+$ (e.g. M1, M2, RC1). When set, the release version is auto-derived as <pom-base-version>-<MILESTONE_VERSION> (e.g. 5.0.0-M2), tagged exactly that (no -RELEASE suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.')
         choice(name: 'JDK',             choices: JDK_VERSION_CHOICES,
-               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1 and 5.0). This is the JDK used to run the build & install.')
+               description: 'Leave blank to auto-infer from RELEASE (11 for 4.0, 17 for 4.1 and 5.0). This is the JDK used to run the build & install.')
         choice(name: 'TCK_JDK',         choices: JDK_VERSION_CHOICES,
-               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 21 for 4.1 and 5.0). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
+               description: 'Leave blank to auto-infer from RELEASE (11 for 4.0, 21 for 4.1 and 5.0). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
         string(name: 'TCK_VERSION',     defaultValue: '',
-               description: 'Leave blank to auto-infer from BRANCH.')
+               description: 'Leave blank to auto-infer from RELEASE.')
         string(name: 'GF_VERSION',      defaultValue: '',
-               description: 'Leave blank to auto-infer from BRANCH. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
+               description: 'Leave blank to auto-infer from RELEASE. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
         string(name: 'GF_BUNDLE_URL',   defaultValue: '',
                description: 'Leave blank to resolve GlassFish from Maven Central via GF_VERSION; otherwise an explicit zip URL override (GF_VERSION must match the artifact version inside the zip).')
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
@@ -198,8 +198,8 @@ spec:
             steps {
                 cleanWs()
                 script {
-                    def cfg = BRANCH_CONFIG[params.BRANCH]
-                    if (cfg == null) error "Unknown BRANCH: ${params.BRANCH}"
+                    def cfg = BRANCH_CONFIG[params.RELEASE]
+                    if (cfg == null) error "Unknown RELEASE: ${params.RELEASE}"
 
                     env.RESOLVED_JDK         = params.JDK?.trim()         ?: cfg.jdk
                     env.RESOLVED_TCK_JDK     = params.TCK_JDK?.trim()     ?: cfg.tckJdk
@@ -246,7 +246,7 @@ spec:
                     }
                 }
                 script {
-                    def cfg = BRANCH_CONFIG[params.BRANCH]
+                    def cfg = BRANCH_CONFIG[params.RELEASE]
 
                     // Read snapshot version from pom.xml; the release version is always derived from it.
                     def snapshot = sh(returnStdout: true, script:
@@ -271,7 +271,7 @@ spec:
                     } else {
                         env.IS_MILESTONE    = 'false'
                         env.RELEASE_VERSION = baseVersion
-                        requireGaVersion('RELEASE_VERSION', env.RELEASE_VERSION, params.BRANCH)
+                        requireGaVersion('RELEASE_VERSION', env.RELEASE_VERSION, params.RELEASE)
                         env.NEXT_VERSION    = bumpLastComponent(env.RELEASE_VERSION) + '-SNAPSHOT'
                         env.RELEASE_TAG     = "${env.RELEASE_VERSION}-RELEASE"
                         env.RELEASE_BRANCH  = env.RELEASE_VERSION
@@ -336,10 +336,10 @@ spec:
                         : "JDK${env.RESOLVED_JDK}/TCK-JDK${env.RESOLVED_TCK_JDK}"
                     def tckLabel = params.RUN_TCK ? "TCK ${env.RESOLVED_TCK_VERSION}" : "TCK skipped"
                     // old-TCK exists only on 4.x; on 5.0+ the module is gone so the flag is a no-op.
-                    def skipOldTckLabel = (params.BRANCH.startsWith('4.') && params.RUN_TCK && params.SKIP_OLD_TCK) ? ', old-TCK skipped' : ''
+                    def skipOldTckLabel = (params.RELEASE.startsWith('4.') && params.RUN_TCK && params.SKIP_OLD_TCK) ? ', old-TCK skipped' : ''
                     def milestoneLabel = (env.IS_MILESTONE == 'true') ? ', milestone' : ''
                     def dryRunLabel = params.DRY_RUN ? ', dry-run' : ''
-                    currentBuild.description = "${params.BRANCH} → ${env.RELEASE_VERSION}" +
+                    currentBuild.description = "${params.RELEASE} → ${env.RELEASE_VERSION}" +
                         ((env.SHOULD_BUILD_API == 'true') ? " + API ${env.RESOLVED_API_VERSION}" : ' (impl-only)') +
                         " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${skipOldTckLabel}${milestoneLabel}${dryRunLabel})"
                     if (env.IS_MILESTONE == 'true') {
@@ -452,7 +452,7 @@ spec:
                     mkdir -p download
                     TCK_BUNDLE_NAME="jakarta-faces-tck-${RESOLVED_TCK_VERSION}"
                     TCK_BUNDLE_DIR="faces-tck-${RESOLVED_TCK_VERSION}"
-                    TCK_URL="https://download.eclipse.org/jakartaee/faces/${BRANCH}/${TCK_BUNDLE_NAME}.zip"
+                    TCK_URL="https://download.eclipse.org/jakartaee/faces/${RELEASE}/${TCK_BUNDLE_NAME}.zip"
 
                     wget -q "${TCK_URL}" -O "download/${TCK_BUNDLE_NAME}.zip"
                     unzip -q -o "download/${TCK_BUNDLE_NAME}.zip"
@@ -647,7 +647,7 @@ spec:
                                 # Anchor the auto-generated notes to the previous *-RELEASE tag in the same
                                 # major.minor family; otherwise GitHub picks the most recent semver tag
                                 # repo-wide, which may belong to a different release line.
-                                PREVIOUS_TAG=$(git tag -l "${BRANCH}.*-RELEASE" \\
+                                PREVIOUS_TAG=$(git tag -l "${RELEASE}.*-RELEASE" \\
                                     | grep -v "^${RELEASE_TAG}$" | sort -V | tail -1)
                                 if [ -n "${PREVIOUS_TAG}" ]; then
                                     GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
@@ -697,10 +697,10 @@ spec:
         success {
             script {
                 def kind = (env.IS_MILESTONE == 'true') ? 'Milestone' : 'Released'
-                echo "${kind} ${env.RELEASE_VERSION} from branch ${params.BRANCH}."
+                echo "${kind} ${env.RELEASE_VERSION} from branch ${params.RELEASE}."
             }
         }
-        failure { echo "Release of ${env.RELEASE_VERSION} from ${params.BRANCH} FAILED." }
+        failure { echo "Release of ${env.RELEASE_VERSION} from ${params.RELEASE} FAILED." }
     }
 }
 
