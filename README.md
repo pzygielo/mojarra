@@ -19,7 +19,7 @@
 Eclipse's implementation of the Jakarta Faces 4.1 specification.
 
 For Mojarra / JSF 2.3 please have a look at https://github.com/eclipse-ee4j/mojarra/blob/2.3/README.md.  
-For Mojarra / JSF 3.0 please have a look at https://github.com/eclipse-ee4j/mojarra/blob/3.0/README.md.
+For Mojarra / JSF 3.0 please have a look at https://github.com/eclipse-ee4j/mojarra/blob/3.0/README.md.  
 For Mojarra / JSF 4.0 please have a look at https://github.com/eclipse-ee4j/mojarra/blob/4.0/README.md.
 
 ## Minimum Requirements
@@ -53,11 +53,11 @@ In case you're manually carrying around JARs:
     Add below JARs to `/WEB-INF/lib`:
 
     - [`jakarta.faces.4.1.x.jar`][9]
-    - [`weld-servlet-shaded-4.1.0.Final.jar`][10]
-    - [`jakarta.json-api-2.1.0.jar`][12] (optional, only when `<f:websocket>` is used)
+    - [`weld-servlet-shaded-6.0.x.Final.jar`][10]
+    - [`jakarta.json-api-2.1.x.jar`][12] (optional, only when `<f:websocket>` is used)
     - [`jakarta.json-2.1.0.jar`][12a] (optional, only when `<f:websocket>` is used)
-    - [`jakarta.validation-api-3.1.0.jar`][13] (optional, only when `<f:validateBean|validateWholeBean>` is used)
-    - [`hibernate-validator-8.0.x.Final.jar`][14] (optional, only when `<f:validateBean|validateWholeBean>` is used)
+    - [`jakarta.validation-api-3.1.x.jar`][13] (optional, only when `<f:validateBean|validateWholeBean>` is used)
+    - [`hibernate-validator-9.0.x.Final.jar`][14] (optional, only when `<f:validateBean|validateWholeBean>` is used)
 
     Substitute `x` with latest version number available.
 
@@ -76,7 +76,9 @@ In case you're using Maven, you can find below the necessary coordinates:
     </dependency>
     ```
 
-In case of WildFly/JBoss EAP, [you need to manually package `jsf-api.jar` and `jsf-impl.jar` based on `jakarta.faces.jar` first][15]. In case of TomEE, just swap the `myfaces*.jar` files with `jakarta.faces.jar` in the server's `/lib` folder. In case of Payara/GlassFish, just swap the `jakarta.faces.jar` file in the server's `/glassfish/modules` folder.
+In case of WildFly/JBoss EAP, just awap the `jakarta.faces-4.1.x.jar` file in server's `/modules/system/layers/base/jakarta/faces/impl/main` folder.
+In case of TomEE, just swap the `myfaces*.jar` files with `jakarta.faces.jar` in the server's `/lib` folder.
+In case of Payara/GlassFish, just swap the `jakarta.faces.jar` file in the server's `/glassfish/modules` folder.
 
 - **Servletcontainers (Tomcat, Jetty, etc)**
 
@@ -84,26 +86,26 @@ In case of WildFly/JBoss EAP, [you need to manually package `jsf-api.jar` and `j
     <dependency>
         <groupId>org.glassfish</groupId>
         <artifactId>jakarta.faces</artifactId>
-        <version><!-- Use latest 4.0.x version. --></version>
+        <version><!-- Use latest 4.1.x version. --></version>
     </dependency>
     <dependency>
         <groupId>org.jboss.weld.servlet</groupId>
         <artifactId>weld-servlet-shaded</artifactId>
-        <version>4.1.0.Final</version>
+        <version><!-- Use latest 6.0.x version. --></version>
     </dependency>
     <dependency> <!-- Optional, only when <f:websocket> is used. -->
         <groupId>org.glassfish</groupId>
         <artifactId>jakarta.json</artifactId>
-        <version>2.1.0</version>
+        <version><!-- Use latest 2.1.x version. --></version>
     </dependency>
     <dependency> <!-- Optional, only when <f:validateBean> or <f:validateWholeBean> is used. -->
         <groupId>org.hibernate.validator</groupId>
         <artifactId>hibernate-validator</artifactId>
-        <version><!-- Use latest 8.0.x version. --></version>
+        <version><!-- Use latest 9.0.x version. --></version>
     </dependency>
     ```
 
-    You can check [`org.glassfish:jakarta.faces`][16] repository to find the latest Mojarra 4.0.x version.
+You can check [`org.glassfish:jakarta.faces`][16] repository to find the latest Mojarra 4.1.x version.
 
 
 ## Testing
@@ -124,8 +126,8 @@ Optionally, register the `FacesServlet` in a Servlet 6.0+ compatible deployment 
 <web-app
     xmlns="https://jakarta.ee/xml/ns/jakartaee"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_6_0.xsd"
-    version="6.0"
+    xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_6_1.xsd"
+    version="6.1"
 >
     <servlet>
         <servlet-name>facesServlet</servlet-name>
@@ -147,8 +149,8 @@ The Faces deployment descriptor file `/WEB-INF/faces-config.xml` is fully option
 <faces-config
     xmlns="https://jakarta.ee/xml/ns/jakartaee"
     xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-    xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-facesconfig_4_0.xsd"
-    version="4.0"
+    xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-facesconfig_4_1.xsd"
+    version="4.1"
 >
     <!-- Put any faces config here. -->
 </faces-config>
@@ -194,7 +196,7 @@ Noted should be that in reality in the average Jakarta EE application the above 
 
 ### View
 
-Finally create a [Facelets][20] file `/hello.xhtml` as below:
+Finally create a Facelets file `/hello.xhtml` as below:
 
 ```xml
 <!DOCTYPE html>
@@ -225,120 +227,20 @@ Start the server and open it by `http://localhost:8080/contextname/hello.xhtml`.
 ## Activating CDI in Jakarta Faces 4.1
 
 CDI is activated by default in Jakarta Faces 4.1 and can´t be deactivated.  
-It´s not required anymore to add `@FacesConfig` to a CDI managed bean to accomplish this.
+It´s not anymore required to add `@FacesConfig` to a CDI managed bean to accomplish this.
 As of Jakarta Faces 4.0 `@FacesConfig` still removes the need to explicitly add a `FacesServlet` entry to `web.xml`.
 
-## Building
+## Building and Contributing
 
-In case you want to checkout this repository and manually build from source yourself (if necessary after editing source code), here are the instructions:
-
-### Jakarta Faces.Next
-
-1. Make sure that you have JDK 17, Ant and Maven installed.
-2. Checkout branch [`master`][28].
-3. Run the following commands from the root directory of the project:
-
-    ```bash
-    # under the root dir of project
-    mvn clean install
-    ```
-
-4. The binary is now available as `impl/target/jakarta.faces-4.x.x-SNAPSHOT.jar`.
-
-
-
-### Jakarta Faces 4.0
-
-1. Make sure that you have JDK 11, Ant and Maven installed.
-2. Checkout branch [`4.0`][31].
-3. Run the following commands from the root directory of the project:
-
-    ```bash
-    # under the root dir of project
-    mvn clean install
-    ```
-
-4. The binary is now available as `impl/target/jakarta.faces-4.0.x-SNAPSHOT.jar`.
-
-### Jakarta Faces 3.0
-
-1. Make sure that you have JDK 1.8, Ant and Maven installed.
-2. Checkout branch [`3.0`][29].
-3. Run the following commands from the root directory of the project:
-
-    ```bash
-    # under the root dir of project
-    mvn clean install
-    ```
-
-4. The binary is now available as `impl/target/jakarta.faces-3.0.x-SNAPSHOT.jar`.
-
-### Jakarta Faces 2.3
-
-1. Make sure that you have JDK 1.8, Ant and Maven installed.
-2. Checkout branch [`2.3`][30].
-3. Run the following commands from the root directory of the project:
-
-    ```bash
-    # under the root dir of project
-    mvn clean install
-    ```
-
-4. The binary is now available as `impl/target/jakarta.faces-2.3.x-SNAPSHOT.jar`.
-
-### Jakarta Faces 2.2
-
-Jakarta Faces 2.2 and lower are not supported by Eclipse. If such support is needed, consult your Jakara EE vendor of choice. 
-
-## Editing source code with IDE
-
-In case you want to checkout to edit the source code of Mojarra with full IDE support, here are the instructions. Note that this only allows you to *edit* the code. Actually building the Mojarra artefacts still has to be done using the instructions provided above.
-
-### Eclipse
-
-#### Jakarta Faces 4.0
-
-1. Checkout branch [`4.0`][29] using File -> import -> Git
-2. Right click the Mojarra project after checkout, choose Configure -> Convert to Maven Project
-
-#### Jakarta Faces 3.0
-
-1. Checkout branch [`3.0`][29] using File -> import -> Git
-2. Right click the Mojarra project after checkout, choose Configure -> Convert to Maven Project
-
-#### Jakarta Faces 2.3
-
-1. Checkout branch [`2.3`][30] using File -> import -> Git
-2. Right click the Mojarra project after checkout, choose Configure -> Convert to Maven Project
-
-
-## Pull Requests
-
-Pull requests are accepted on following branches:
-
-- [`master`][28] (4.0.x)
-- [`3.0`][29] (3.0.x)
-- [`2.3`][30] (2.3.x)
-
-Note that it's okay to send a PR to the master branch, but this one is for Faces.next and not the current 2.3.x or 3.0.x version.
-
-## Releasing
-
-pom.xml versions can be adjusted as follows
-
-```
-mvn versions:set -DgroupId=* -DartifactId=* -DoldVersion=* -DgenerateBackupPoms=false -DnewVersion=4.0.1-SNAPSHOT
-```
+Instructions for checking out the source, building from source, importing into an IDE, and submitting pull requests are available in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Resources
 
-- [JSF 2.3 Specification (JSR 372)][21]
-- [JSF 2.3 API documentation][22]
-- [JSF 2.3 VDL documentation][23]
-- [JSF 2.3 JS documentation][24]
-- [Oracle Java EE 7 tutorial - JavaServer Faces Technology][25] (currently still JSF 2.2)
-- [What's new in JSF 2.3?][26]
-- [Java EE Kickoff Application][27]
+- [Faces 4.1 Specification][21]
+- [Faces 4.1 API documentation][22]
+- [Faces 4.1 VDL documentation][23]
+- [Faces 4.1 JS documentation][24]
+- [What's new in Faces 4.1?][26]
 
 
   [1]: http://wildfly.org/
@@ -363,15 +265,8 @@ mvn versions:set -DgroupId=* -DartifactId=* -DoldVersion=* -DgenerateBackupPoms=
   [17]: https://stackoverflow.com/q/3008395/157882
   [18]: https://stackoverflow.com/q/5104094/157882
   [19]: https://stackoverflow.com/q/30639785/157882
-  [20]: http://docs.oracle.com/javaee/7/tutorial/jsf-facelets.htm
-  [21]: http://download.oracle.com/otn-pub/jcp/jsf-2_3-final-eval-spec/JSF_2.3.pdf
-  [22]: https://javaserverfaces.github.io/docs/2.3/javadocs/index.html
-  [23]: https://javaserverfaces.github.io/docs/2.3/vdldoc/index.html
-  [24]: https://javaserverfaces.github.io/docs/2.3/jsdocs/index.html
-  [25]: http://docs.oracle.com/javaee/7/tutorial/jsf-intro.htm
-  [26]: http://arjan-tijms.omnifaces.org/p/jsf-23.html
-  [27]: https://github.com/javaeekickoff/java-ee-kickoff-app
-  [28]: https://github.com/eclipse-ee4j/mojarra
-  [29]: https://github.com/eclipse-ee4j/mojarra/tree/3.0
-  [30]: https://github.com/eclipse-ee4j/mojarra/tree/2.3
-  [31]: https://github.com/eclipse-ee4j/mojarra/tree/4.0
+  [21]: https://jakarta.ee/specifications/faces/4.1/jakarta-faces-4.1
+  [22]: https://jakarta.ee/specifications/faces/4.1/apidocs/jakarta.faces/module-summary.html
+  [23]: https://jakarta.ee/specifications/faces/4.1/vdldoc/
+  [24]: https://jakarta.ee/specifications/faces/4.1/jsdoc/faces
+  [26]: https://balusc.omnifaces.org/2024/06/whats-new-in-faces-41.html
