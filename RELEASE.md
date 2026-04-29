@@ -29,7 +29,7 @@ In the example below we assume releasing **Mojarra 4.0.17**.
    - `RUN_TCK` — uncheck to skip the TCK stage. Default: checked.
    - `SKIP_OLD_TCK` — check to skip the old-tck JavaTest modules on 4.0/4.1 (excluded from the reactor entirely via `-pl`; cuts at least 2 hours off the TCK run). No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected. Default: unchecked.
    - `DRY_RUN` — check to do everything except Maven Central deploy and GitHub push. Default: checked. Useful for rehearsals.
-   - `TEST_RUN` — only meaningful as a sub-toggle of `DRY_RUN`: filters the TCK to a tiny representative subset (one sigtest + one GF-failsafe + one old-tck-selenium IT, plus one old-tck JavaTest path when `SKIP_OLD_TCK` is unchecked). Drops run time to ~10 min. Hard-gated: silently ignored when `DRY_RUN` is unchecked, since the run is not TCK-conformant and must never produce a published release. Default: unchecked.
+   - `TEST_RUN` — only meaningful as a sub-toggle of `DRY_RUN`: filters the TCK to a tiny representative subset (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when `SKIP_OLD_TCK` is unchecked). Drops run time to ~10 min. Hard-gated: silently ignored when `DRY_RUN` is unchecked, since the run is not TCK-conformant and must never produce a published release. Default: unchecked.
 5. Click **Build**.
 6. Wait for the run to finish. The build description shows a one-line summary, e.g. `4.0 → 4.0.17 (impl-only) (JDK11, GF 7.0.25, TCK 4.0.3)`. Optional toggles surface as comma-separated suffixes (`, old-TCK skipped`, `, test-run`, `, milestone`, `, dry-run`).
 7. On success, verify:
