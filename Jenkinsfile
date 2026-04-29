@@ -161,9 +161,9 @@ spec:
         string(name: 'MILESTONE_VERSION', defaultValue: '',
                description: 'Leave blank for a GA release; otherwise the suffix for a milestone/RC release. Must match ^(M|RC)[0-9]+$ (e.g. M1, M2, RC1). When set, the release version is auto-derived as <pom-base-version>-<MILESTONE_VERSION> (e.g. 5.0.0-M2), tagged exactly that (no -RELEASE suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.')
         choice(name: 'JDK',             choices: JDK_VERSION_CHOICES,
-               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1, 17 for master). This is the JDK used to run the build & install.')
+               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1 and master). This is the JDK used to run the build & install.')
         choice(name: 'TCK_JDK',         choices: JDK_VERSION_CHOICES,
-               description: 'Leave blank to auto-infer from BRANCH (17 for 4.0, 21 for 4.1 and master). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
+               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 21 for 4.1 and master). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
         string(name: 'TCK_VERSION',     defaultValue: '',
                description: 'Leave blank to auto-infer from BRANCH.')
         string(name: 'GF_VERSION',      defaultValue: '',
@@ -174,7 +174,7 @@ spec:
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release) or when MILESTONE_VERSION is set.')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
         booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: '4.x only. Skip the old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run. No-op on 5.0+ where the old-tck module no longer exists.')
-        booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push (locally installs the artifacts instead). Run TCK against the local install.')
+        booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push.')
     }
 
     options {
