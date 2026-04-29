@@ -1,40 +1,28 @@
 #!/usr/bin/env groovy
 //
-// Mojarra release pipeline — replaces the legacy 3-job chain
-// (1_mojarra-build-and-stage / 2_mojarra-run-tck / 3_mojarra-staging-to-release).
+// Mojarra release pipeline.
 //
-// Stages:
-//   Prepare
-//   -> Build & install (single reactor — impl + faces/api submodule via -Papi)
-//   -> TCK
-//   -> Deploy to Maven Central (skipped on DRY_RUN)
-//   -> Bump to next snapshot
-//   -> Publish to GitHub: push release branch+tag, then open & squash-merge a PR back to the
-//      source branch via gh CLI (skipped on DRY_RUN)
+// Stages: Prepare -> Build & install -> TCK -> Deploy to Maven Central -> Bump to next snapshot
+//   -> Publish to GitHub. Maven Central deploy and GitHub push run only after the TCK passes,
+//   so a TCK failure leaves no half-published external state.
 //
-// Maven Central deploy and GitHub push BOTH run only after the TCK passes,
-// so a TCK failure leaves no half-published external state.
-//
-// On 5.0+ the standalone jakarta.faces-api lives in jakartaee/faces and is wired into mojarra
-// as a git submodule at faces/. The mojarra-parent pom adds it to the reactor via the `api`
-// profile. Activating `-Papi` makes one `mvn install`/`deploy` build & publish both artifacts
-// in a single reactor invocation. `versions:set` is run twice though — once on the mojarra
-// reactor (cascades to impl) and once on faces/api/pom.xml directly, because faces/api has a
-// different parent (org.eclipse.ee4j:project) and so doesn't inherit mojarra's version bump.
+// On 5.0+ the standalone jakarta.faces-api lives in jakartaee/faces and is wired in as a git
+// submodule at faces/. The `api` profile on the mojarra-parent pom adds it to the reactor; with
+// `-Papi`, a single `mvn install`/`deploy` builds and publishes both artifacts. `versions:set`
+// runs twice — once on the mojarra reactor (cascades to impl) and once on faces/api/pom.xml
+// directly, because faces/api has a different parent (org.eclipse.ee4j:project).
 //
 // Whether to release the API alongside the impl is auto-inferred from impl/pom.xml's
-// jakarta.faces-api dependency version: a -SNAPSHOT means the API is unreleased and must be
-// released, while a GA version means the API is already on Maven Central and only the impl
-// is rebuilt (impl-only patch release).
+// jakarta.faces-api dependency version: -SNAPSHOT triggers a joint release, a GA version means
+// impl-only.
 //
 // Maven Central publication is gated by -Dcentral.autoPublish=true (set only by this Jenkinsfile).
 // A bare `mvn deploy -Pcentral-release` from a developer machine stages the bundle in the Portal
-// but does NOT publish — only CI flips the flag.
+// but does NOT publish.
 //
 
 // JDK install root layout on Eclipse CI: /opt/tools/java/<prefix>/jdk-<N>/latest. Prefix is a
-// function of major version, not branch — kept here as a shared lookup so both the build JDK
-// (jdk) and the TCK JDK (tckJdk) can resolve their install path the same way.
+// function of major version, used for both the build JDK and the TCK JDK.
 def JAVA_PREFIX_BY_JDK = [
     '11': 'openjdk',
     '17': 'openjdk',
@@ -44,39 +32,29 @@ def JAVA_PREFIX_BY_JDK = [
 // ---- Per-branch configuration ---------------------------------------------
 // Adding a new release line = one entry here.
 //
-// Branch mapping mojarra <-> jakartaee/faces (TCK + API sources):
-//   mojarra 4.0    -> faces repo branch 4.0.x   (TCK source; API was bundled with impl)
-//   mojarra 4.1    -> faces repo branch master  (TCK source; API was bundled with impl)
-//   mojarra master -> faces repo branch 5.0     (both API artifact AND TCK source — wired in via the
-//                                                faces submodule; matches .gitmodules `branch = 5.0`)
-//
 // Fields:
-//   versionFamily  : the MAJOR.MINOR family this branch represents (does NOT always equal BRANCH: mojarra
-//                    "master" maps to "5.0"). Used both as the path segment on
-//                    download.eclipse.org/jakartaee/faces/<here>/ AND as the required prefix for
-//                    RELEASE_VERSION (sanity check: must start with versionFamily + ".").
-//   jdk            : major JDK version used to build & install the impl (per Faces spec).
-//   tckJdk         : major JDK version used to run the TCK. Differs from jdk when the GlassFish
-//                    container needs a newer JDK than the spec.
-//   apiBranch      : faces-repo branch for the standalone jakarta.faces-api jar (null pre-5.0).
-//                    Must match .gitmodules on that branch of mojarra.
-//   facesVersion   : -Dfaces.version passed to the TCK build
-//   tckVersion     : Faces TCK release version
-//   gfVersion      : GlassFish Maven coordinate version used by the TCK
-// (Chrome version is auto-detected at TCK time from the unzipped tck zip's
-// ChromeDevtoolsDriver.java CDP import — see the TCK stage. 4.0's TCK pins CDP v108, which
-// predates Chrome-for-Testing's catalog (starts ~v113), so detection there naturally yields
-// no installable Chrome and the BaseITNG tests self-skip via -Dtest.selenium=false.)
+//   versionFamily   : MAJOR.MINOR family this branch represents (mojarra "master" maps to "5.0").
+//                     Used as the path segment on download.eclipse.org/jakartaee/faces/<here>/
+//                     and as the required prefix for RELEASE_VERSION.
+//   jdk             : major JDK version used to build the impl (per Faces spec).
+//   tckJdk          : major JDK version used to run the TCK. Differs from jdk when the GlassFish
+//                     container needs a newer JDK than the spec.
+//   apiBranch       : faces-repo branch for the standalone jakarta.faces-api jar (null when no
+//                     separate API artifact exists for this branch). Must match .gitmodules.
+//   facesVersion    : -Dfaces.version passed to the TCK build.
+//   tckVersion      : Faces TCK release version.
+//   gfVersion       : GlassFish Maven coordinate version used by the TCK.
+//   seleniumEnabled : whether the BaseITNG (Selenium/Chrome) tests run. The agent pod ships
+//                     current Chrome; set false for branches whose TCK pins a CDP major outside
+//                     Selenium's fudge range (e.g. 4.0 pins CDP v108).
 def BRANCH_CONFIG = [
-    '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'   ],
-    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6' ],
-    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2' ],
+    '4.0'   : [ versionFamily: '4.0', jdk: '11', tckJdk: '11', apiBranch: null,  facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'  , seleniumEnabled: false ],
+    '4.1'   : [ versionFamily: '4.1', jdk: '17', tckJdk: '21', apiBranch: null,  facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
+    'master': [ versionFamily: '5.0', jdk: '17', tckJdk: '21', apiBranch: '5.0', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
 ]
 
-// Reusable shell snippet: GPG keyring import + trust. Idempotent on the same agent;
-// required at the top of every stage that signs (Build install signs javadoc/sources via the
-// release profile chain; Deploy signs everything for Maven Central) because `agent any` may
-// land different stages on different agents whose ~/.gnupg is empty.
+// Reusable shell snippet: GPG keyring import + trust. Idempotent. Required wherever the build
+// signs artifacts (javadoc/sources in Build & install, everything in Deploy to Maven Central).
 // Inside ''' Groovy strings, ${...} stays literal so bash sees ${KEYRING}.
 def GPG_INIT = '''
     gpg --batch --import "${KEYRING}"
@@ -94,23 +72,16 @@ def GIT_IDENTITY = '''
 
 def GPG_GIT_INIT = GPG_INIT + GIT_IDENTITY
 
-// Reusable shell snippet: enforce branch/tag does not exist on origin (or delete it under OVERWRITE).
+// Reusable shell snippet: refuse to start the release if origin already carries this version's
+// branch or tag. Recovery for any such conflict is to bump RELEASE_VERSION and re-run.
 // Expects bash variables BRANCH_NAME and TAG_NAME to be set in the surrounding script.
 def REMOTE_REF_CONFLICT_CHECK = '''
     if [ "${DRY_RUN}" != "true" ]; then
         if git ls-remote --heads origin | grep -q "refs/heads/${BRANCH_NAME}$"; then
-            if [ "${OVERWRITE}" = "true" ]; then
-                git push --delete origin "${BRANCH_NAME}" || true
-            else
-                echo "Release branch ${BRANCH_NAME} exists on origin; set OVERWRITE=true to replace." >&2; exit 1
-            fi
+            echo "Release branch ${BRANCH_NAME} already exists on origin; bump RELEASE_VERSION." >&2; exit 1
         fi
         if git ls-remote --tags origin | grep -q "refs/tags/${TAG_NAME}$"; then
-            if [ "${OVERWRITE}" = "true" ]; then
-                git push --delete origin "${TAG_NAME}" || true
-            else
-                echo "Release tag ${TAG_NAME} exists on origin; set OVERWRITE=true to replace." >&2; exit 1
-            fi
+            echo "Release tag ${TAG_NAME} already exists on origin; bump RELEASE_VERSION." >&2; exit 1
         fi
     fi
     git branch -D "${BRANCH_NAME}" 2>/dev/null || true
@@ -119,7 +90,64 @@ def REMOTE_REF_CONFLICT_CHECK = '''
 '''
 
 pipeline {
-    agent any
+    // Run the entire pipeline inside a kubernetes pod with Chrome pre-installed, so the TCK's
+    // BaseITNG (Selenium) tests can drive a real browser without us bootstrapping it.
+    // eclipsecbijenkins/basic-ubuntu-chrome layers Chrome onto jiro-agent-basic-ubuntu, so the
+    // standard Eclipse CI tooling layout (/opt/tools/java, /opt/tools/apache-maven, settings.xml
+    // mounts) is preserved.
+    agent {
+        kubernetes {
+            label 'mojarra-release-pod'
+            defaultContainer 'jnlp-with-chrome'
+            yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: jnlp-with-chrome
+      image: 'eclipsecbijenkins/basic-ubuntu-chrome:latest'
+      tty: true
+      command:
+        - cat
+      env:
+        - name: HOME
+          value: /home/jenkins
+      resources:
+        limits:
+          memory: 8Gi
+          cpu: '2'
+        requests:
+          memory: 8Gi
+          cpu: '2'
+      volumeMounts:
+        - name: jenkins-home
+          mountPath: /home/jenkins
+          readOnly: false
+        - name: settings-xml
+          mountPath: /home/jenkins/.m2/settings.xml
+          subPath: settings.xml
+          readOnly: true
+        - name: m2-repo
+          mountPath: /home/jenkins/.m2/repository
+        - name: tools
+          mountPath: /opt/tools
+  volumes:
+    - name: jenkins-home
+      emptyDir: {}
+    - name: settings-xml
+      secret:
+        secretName: m2-secret-dir
+        items:
+          - key: settings.xml
+            path: settings.xml
+    - name: m2-repo
+      emptyDir: {}
+    - name: tools
+      persistentVolumeClaim:
+        claimName: tools-claim-jiro-mojarra
+"""
+        }
+    }
 
     parameters {
         choice(name: 'BRANCH',          choices: ['4.0', '4.1', 'master'],
@@ -127,23 +155,20 @@ pipeline {
         string(name: 'RELEASE_VERSION', defaultValue: '',
                description: 'Leave blank to auto-infer from parent pom.xml (strips -SNAPSHOT). Must be a dotted-numeric GA version (e.g. 4.1.5); milestone/RC versions are not supported.')
         choice(name: 'JDK',             choices: ['', '11', '17', '21'],
-               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1, 17 for master).')
+               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1, 17 for master). This is the JDK used to run the build & install.')
         choice(name: 'TCK_JDK',         choices: ['', '11', '17', '21'],
-               description: 'JDK used to RUN the TCK (the GlassFish container may need a newer JDK than the spec). Leave blank to auto-infer from BRANCH (17 for 4.0, 21 for 4.1 and master).')
+               description: 'Leave blank to auto-infer from BRANCH (17 for 4.0, 21 for 4.1 and master). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
         string(name: 'TCK_VERSION',     defaultValue: '',
                description: 'Leave blank to auto-infer from BRANCH.')
         string(name: 'GF_VERSION',      defaultValue: '',
                description: 'Leave blank to auto-infer from BRANCH. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
         string(name: 'GF_BUNDLE_URL',   defaultValue: '',
                description: 'Optional GlassFish zip URL override. If set, GF_VERSION must also be set to match.')
-        string(name: 'CHROME_VERSION',  defaultValue: '',
-               description: 'Optional Chrome-for-Testing version override (e.g. 139.0.7258.155). Leave blank to auto-detect from the downloaded TCK zip (greps the CDP major out of ChromeDevtoolsDriver.java and resolves it via the Chrome-for-Testing milestone JSON). Set to literal "none" to skip the Chrome install and force -Dtest.selenium=false. See https://googlechromelabs.github.io/chrome-for-testing/ for available builds.')
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release).')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
-        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: true, description: 'Skip the legacy old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run. Only meaningful on 4.0/4.1; on 5.0 the old TCK was migrated to Selenium in faces20 and this flag is a no-op.')
+        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: true, description: 'Skip the old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run on 4.0/4.1. No-op on 5.0+ where the old-tck module no longer exists.')
         booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push (locally installs the artifacts instead). Run TCK against the local install.')
-        booleanParam(name: 'OVERWRITE',   defaultValue: false, description: 'Allow overwriting existing release branch/tag in GitHub.')
     }
 
     options {
@@ -173,12 +198,7 @@ pipeline {
                     env.RESOLVED_TCK_JDK     = params.TCK_JDK?.trim()     ?: cfg.tckJdk
                     env.RESOLVED_TCK_VERSION = params.TCK_VERSION?.trim() ?: cfg.tckVersion
                     env.RESOLVED_GF_VERSION  = params.GF_VERSION?.trim()  ?: cfg.gfVersion
-                    // CHROME_VERSION resolution:
-                    //   blank param -> auto-detect from the unzipped TCK in the TCK stage.
-                    //   "none"      -> explicitly skip Chrome install, force HtmlUnit-only.
-                    //   anything    -> exact CfT version to install on the agent (override).
-                    def chromeOverride = params.CHROME_VERSION?.trim()
-                    env.RESOLVED_CHROME_VERSION = (chromeOverride == 'none') ? '' : (chromeOverride ?: '')
+                    env.SELENIUM_ENABLED     = cfg.seleniumEnabled ? 'true' : 'false'
                     env.FACES_VERSION        = cfg.facesVersion
                     env.VERSION_FAMILY       = cfg.versionFamily
                     env.API_BRANCH           = cfg.apiBranch ?: ''
@@ -194,10 +214,9 @@ pipeline {
 
                     sh 'java -version && mvn -v'
                 }
-                // Mojarra checkout. On master (5.0+) this also initializes the faces/ submodule, tracking
-                // the configured branch tip (per .gitmodules) rather than the recorded SHA — release should
-                // pull the latest API code, not whatever was pinned at last commit. On 4.0/4.1 there is no
-                // .gitmodules so SubmoduleOption is a no-op.
+                // Mojarra checkout. When .gitmodules is present (5.0+), initialize the faces/ submodule
+                // tracking the configured branch tip rather than the recorded SHA — the release should
+                // pull the latest API code, not whatever was pinned at last commit.
                 checkout([$class: 'GitSCM',
                     branches: [[name: "*/${params.BRANCH}"]],
                     userRemoteConfigs: [[url: 'git@github.com:eclipse-ee4j/mojarra.git',
@@ -238,24 +257,19 @@ pipeline {
                     env.RELEASE_TAG    = "${env.RELEASE_VERSION}-RELEASE"
                     env.RELEASE_BRANCH = env.RELEASE_VERSION
 
-                    // Fallback for the CSP backport in Mojarra 4.0.17+ / 4.1.8+ (#5606): a handful of TCK ITs
-                    // assume inline event handlers that no longer hold once mojarra.ael attaches them. The
-                    // TCK pom's `compute-csp-backport-flags` (in profile glassfish-ci-managed) auto-skips
-                    // them based on -Dmojarra.version, but the released TCK zips (4.0.3 / 4.1.0) predate
-                    // that script and won't be re-cut. Reproduce the same exclusion here so the impl release
-                    // works against the existing TCK zips. If a future TCK ships with the script, our
-                    // pre-set `it.test` makes the script's `!containsKey('it.test')` guard a no-op — safe.
+                    // Mirror the TCK pom's `compute-csp-backport-flags` script for Mojarra versions
+                    // covered by the CSP backport (#5606): a handful of TCK ITs need to be excluded
+                    // because their inline event handlers no longer hold once mojarra.ael attaches them.
+                    // Pre-setting `it.test` here is also safe against TCK zips that already ship the
+                    // script — its guard is `!containsKey('it.test')`, which we then trigger as a no-op.
                     env.TCK_IT_TEST_FLAGS = cspBackportItTestFlags(env.RELEASE_VERSION)
 
-                    // Skip old TCK on 4.0 and 4.1. On 5.0 the old-tck module was removed (migrated to Selenium
-                    // under faces20), so this flag has no effect there.
                     env.SKIP_OLD_TCK_FLAG = params.SKIP_OLD_TCK ? '-Dtck.old.skip=true' : ''
 
-                    // Auto-infer SHOULD_BUILD_API from impl/pom.xml's jakarta.faces-api dep version.
-                    // Rule: if the dep is a -SNAPSHOT, the API is unreleased relative to this impl release
-                    // and must be released alongside; if it's a GA version, the API is already on Maven
-                    // Central and we do an impl-only release. Pre-5.0 (apiBranch null) the API was bundled
-                    // with the impl, so this never applies.
+                    // Auto-infer SHOULD_BUILD_API from impl/pom.xml's jakarta.faces-api dep version: a
+                    // -SNAPSHOT dep means the API is unreleased and must be released alongside; a GA
+                    // version means the API is on Maven Central and this is an impl-only release.
+                    // Skipped when no separate API artifact exists for this branch (apiBranch == null).
                     if (cfg.apiBranch != null) {
                         def apiDepVersion = readImplApiDepVersion()
                         if (apiDepVersion == '') {
@@ -272,10 +286,9 @@ pipeline {
                     } else {
                         env.SHOULD_BUILD_API = 'false'
                     }
-                    // -Papi if we're building the API in the same reactor; empty otherwise.
                     env.MVN_API_PROFILE = (env.SHOULD_BUILD_API == 'true') ? '-Papi' : ''
 
-                    // Resolve API_RELEASE_VERSION from faces/api/pom.xml if releasing the API.
+                    // Resolve API_RELEASE_VERSION from faces/api/pom.xml when releasing the API.
                     if (env.SHOULD_BUILD_API == 'true') {
                         def apiSnapshot = sh(returnStdout: true, script:
                             "mvn -B -f faces/api/pom.xml ${env.HELP_PLUGIN}:evaluate -Dexpression=project.version -q -DforceStdout").trim()
@@ -313,10 +326,10 @@ pipeline {
             steps {
                 sshagent(credentials: ['github-bot-ssh']) {
                     withCredentials([file(credentialsId: 'secret-subkeys.asc', variable: 'KEYRING')]) {
-                        // Mojarra: GPG init + git identity + branch/tag conflict check + checkout local release branch.
+                        // Mojarra: GPG init + git identity + branch/tag conflict check + local release branch.
                         sh '#!/bin/bash -ex\nexport BRANCH_NAME="${RELEASE_BRANCH}" TAG_NAME="${RELEASE_TAG}"\n' +
                            GPG_GIT_INIT + REMOTE_REF_CONFLICT_CHECK
-                        // Faces (5.0+ only): same ceremony in the submodule working tree.
+                        // Same ceremony for the faces submodule when releasing the API alongside.
                         script {
                             if (env.SHOULD_BUILD_API == 'true') {
                                 dir('faces') {
@@ -325,9 +338,9 @@ pipeline {
                                 }
                             }
                         }
-                        // Set release versions. Mojarra parent's versions:set cascades to impl. Faces/api
-                        // has a different parent so it needs its own versions:set call. Then pin the impl's
-                        // jakarta.faces-api dep to the just-set API version (5.0+ only); -pl impl scopes it.
+                        // Set release versions. Mojarra parent's versions:set cascades to impl; faces/api
+                        // has a different parent so it needs its own call. Then pin impl's jakarta.faces-api
+                        // dep to the just-set API version.
                         sh '''#!/bin/bash -ex
                             mvn -U -B ${MVN_EXTRA} \\
                                 -DnewVersion="${RELEASE_VERSION}" -DgenerateBackupPoms=false \\
@@ -344,9 +357,9 @@ pipeline {
                                     -DforceVersion=true -DgenerateBackupPoms=false
                             fi
                         '''
-                        // Faces commit FIRST so the submodule HEAD advances; then the mojarra commit
-                        // below picks up the updated `faces` gitlink alongside the pom changes, so the
-                        // mojarra release tag references the matching faces release commit.
+                        // Commit faces FIRST so its HEAD advances; the mojarra commit below then picks
+                        // up the updated submodule gitlink alongside its pom changes, so the mojarra
+                        // release tag references the matching faces release commit.
                         script {
                             if (env.SHOULD_BUILD_API == 'true') {
                                 dir('faces') {
@@ -359,20 +372,20 @@ pipeline {
                         }
                         sh '''#!/bin/bash -ex
                             git add -A '*pom.xml'
-                            # Stage the updated faces submodule gitlink (5.0+ only). No-op on 4.x.
+                            # Stage the updated faces submodule gitlink when present.
                             if [ -d faces ]; then
                                 git add faces
                             fi
                             git commit -m "Prepare release ${RELEASE_VERSION}"
                         '''
-                        // Single-reactor build & install. With -Papi (5.0+), faces/api joins the reactor and
-                        // -pl impl -am pulls it in as a dependency. Without -Papi (4.0/4.1), only impl builds.
+                        // Single-reactor build & install. With -Papi, faces/api joins the reactor and
+                        // -pl impl -am pulls it in as a dependency.
                         sh '''#!/bin/bash -ex
                             mvn -U -B ${MVN_EXTRA} ${MVN_API_PROFILE} \\
                                 -DskipTests -Ddoclint=none \\
                                 -pl impl -am clean install
                         '''
-                        // Tag both repos at their release-prepare commits. Pushes are deferred to "Publish to GitHub".
+                        // Tag locally; the push is deferred to "Publish to GitHub" after Maven Central deploy.
                         sh '''#!/bin/bash -ex
                             git tag "${RELEASE_TAG}" -m "Release ${RELEASE_VERSION}"
                         '''
@@ -395,8 +408,7 @@ pipeline {
             steps {
                 sh '''#!/bin/bash -ex
                     set -o pipefail
-                    # The GlassFish container the TCK runs inside may need a different JDK from the
-                    # one used to build the impl (e.g. Faces 4.1 builds with 17, GF 8 needs 21).
+                    # GlassFish may need a newer JDK than the impl was built with.
                     export JAVA_HOME="${TCK_JAVA_HOME}"
                     export PATH="${JAVA_HOME}/bin:${PATH}"
 
@@ -409,126 +421,15 @@ pipeline {
                     wget -q "${TCK_URL}" -O "download/${TCK_BUNDLE_NAME}.zip"
                     unzip -q -o "download/${TCK_BUNDLE_NAME}.zip"
 
-                    # In-place fix for an upstream TCK packaging typo: tck/faces23/converter
-                    # /pom.xml declares <finalName>test-faces23-ajax</finalName> (copy-pasted
-                    # from tck/faces23/ajax). When both modules run in the same reactor against
-                    # the same GlassFish, the converter's deploy collides with the ajax module's
-                    # still-registered app of the same name and Issue4070IT fails. Drop this
-                    # patch once an upstream-fixed TCK zip ships and BRANCH_CONFIG.tckVersion
-                    # is bumped past it. -i.bak is sed BSD/GNU portable; .bak suffix is
-                    # discarded with the workspace at end of build.
+                    # Workaround for an upstream TCK packaging typo: tck/faces23/converter/pom.xml
+                    # declares <finalName>test-faces23-ajax</finalName>, colliding with the ajax
+                    # module's deploy and breaking Issue4070IT. Drop once a fixed TCK zip ships and
+                    # BRANCH_CONFIG.tckVersion is bumped past it.
                     CONVERTER_POM="${TCK_BUNDLE_DIR}/tck/faces23/converter/pom.xml"
                     if [ -f "${CONVERTER_POM}" ] && grep -q "<finalName>test-faces23-ajax</finalName>" "${CONVERTER_POM}"; then
                         sed -i.bak 's|<finalName>test-faces23-ajax</finalName>|<finalName>test-faces23-converter</finalName>|' "${CONVERTER_POM}"
                         echo "[tck-patch] fixed finalName typo in ${CONVERTER_POM}"
                     fi
-
-                    # Chrome-for-Testing bootstrap. Eclipse CI agents ship no browser, so for
-                    # BaseITNG tests (gated on -Dtest.selenium=true, pom default) we install
-                    # Chrome into the workspace and let the TCK's WebDriverManager fetch a
-                    # matching chromedriver. Chrome's NSS/GTK/X runtime deps come from
-                    # apt-get download + dpkg-deb -x (unprivileged).
-                    #
-                    # Auto-detect the right Chrome version from the unzipped TCK: the
-                    # ChromeDevtoolsDriver.java in the zip imports a hardcoded CDP major
-                    # (e.g. v108 in TCK 4.0.3, v124 in TCK 4.1.0, v139 in 5.0+ TCKs). We
-                    # grep that and resolve the matching Chrome patch via Chrome-for-Testing's
-                    # milestone JSON. If CfT has no build for that major (e.g. v108 — CfT's
-                    # catalog starts around v113) we fall back to -Dtest.selenium=false so
-                    # the BaseITNG tests self-skip instead of failing on driver init.
-                    #
-                    # set +x silences the ~125-deb extraction noise; restored at end.
-                    set +x
-                    SELENIUM_FLAG=""
-                    DRIVER_SRC=$(find "${TCK_BUNDLE_DIR}" -name ChromeDevtoolsDriver.java -print -quit 2>/dev/null || true)
-                    if [ -z "${RESOLVED_CHROME_VERSION}" ] && [ -n "${DRIVER_SRC}" ]; then
-                        CDP_MAJOR=$(grep -oE "devtools\\.v[0-9]+" "${DRIVER_SRC}" | head -1 | sed 's/devtools.v//')
-                        if [ -n "${CDP_MAJOR}" ]; then
-                            CFT_JSON="https://googlechromelabs.github.io/chrome-for-testing/latest-versions-per-milestone-with-downloads.json"
-                            RESOLVED_CHROME_VERSION=$(wget -qO- "${CFT_JSON}" \
-                                | python3 -c "import json,sys; d=json.load(sys.stdin); m=d['milestones'].get('${CDP_MAJOR}'); print(m['version'] if m else '')")
-                            echo "[chrome-bootstrap] auto-detected: TCK CDP v${CDP_MAJOR} -> Chrome ${RESOLVED_CHROME_VERSION:-<not in CfT>}"
-                        fi
-                    elif [ -n "${RESOLVED_CHROME_VERSION}" ]; then
-                        echo "[chrome-bootstrap] using override Chrome version: ${RESOLVED_CHROME_VERSION}"
-                    fi
-
-                    if [ -n "${RESOLVED_CHROME_VERSION}" ]; then
-                        CFT_URL="https://storage.googleapis.com/chrome-for-testing-public/${RESOLVED_CHROME_VERSION}/linux64/chrome-linux64.zip"
-                        CHROME_DIR="${WORKSPACE}/.chrome-${RESOLVED_CHROME_VERSION}"
-                        if [ ! -x "${CHROME_DIR}/chrome-linux64/chrome" ]; then
-                            echo "[chrome-bootstrap] downloading chrome from ${CFT_URL} ..."
-                            rm -rf "${CHROME_DIR}" && mkdir -p "${CHROME_DIR}"
-                            ( cd "${CHROME_DIR}" && wget -q "${CFT_URL}" && unzip -q chrome-linux64.zip )
-                        else
-                            echo "[chrome-bootstrap] chrome already present, skipping download."
-                        fi
-                        export PATH="${CHROME_DIR}/chrome-linux64:${PATH}"
-
-                        DEPS_DIR="${WORKSPACE}/.chrome-deps"
-                        if [ ! -f "${DEPS_DIR}/.installed" ]; then
-                            rm -rf "${DEPS_DIR}" && mkdir -p "${DEPS_DIR}/debs"
-                            # Ubuntu 24.04 renamed several packages with a 't64' suffix for
-                            # the 64-bit time_t ABI transition. The unsuffixed names still
-                            # exist as transitional dummies but have no installable candidate;
-                            # apt-cache policy reveals that, apt-cache show does not.
-                            pick() {
-                                for name in "$@"; do
-                                    cand=$(apt-cache policy "$name" 2>/dev/null \
-                                           | awk "/Candidate:/ {print \\$2}")
-                                    if [ -n "$cand" ] && [ "$cand" != "(none)" ]; then
-                                        echo "$name"; return 0
-                                    fi
-                                done
-                                echo "ERROR: none of [$*] have an installable version" >&2
-                                return 1
-                            }
-                            DIRECT="libnspr4 libnss3 libxkbcommon0 libxcomposite1 libxdamage1 \
-                                    libxrandr2 libxfixes3 libxshmfence1 libgbm1 \
-                                    libpango-1.0-0 libpangocairo-1.0-0 libcairo2 \
-                                    libdrm2 libexpat1 libuuid1 \
-                                    $(pick libasound2t64         libasound2) \
-                                    $(pick libatspi2.0-0t64      libatspi2.0-0) \
-                                    $(pick libatk1.0-0t64        libatk1.0-0) \
-                                    $(pick libatk-bridge2.0-0t64 libatk-bridge2.0-0) \
-                                    $(pick libcups2t64           libcups2)"
-                            # Expand to the full transitive Depends closure (~125 packages on
-                            # Ubuntu 24.04 noble); apt-get download alone fetches only the
-                            # listed names, leaving Chrome's deps-of-deps (libxcb1, libx11-6,
-                            # libfontconfig1, libfreetype6, ...) unresolved.
-                            CLOSURE=$(apt-cache depends --recurse \
-                                --no-recommends --no-suggests --no-conflicts \
-                                --no-breaks --no-replaces --no-enhances ${DIRECT} \
-                                | grep -v "[<>:]" | grep -v "^$" | sort -u | tr "\\n" " ")
-                            echo "[chrome-bootstrap] downloading $(echo ${CLOSURE} | wc -w) transitive .deb packages..."
-                            # || true: tolerate occasional stale-mirror 404s; the chrome
-                            # --version check below is the actual gate.
-                            ( cd "${DEPS_DIR}/debs" && apt-get download -q=2 ${CLOSURE} >/dev/null 2>&1 || true )
-                            echo "[chrome-bootstrap] extracting $(ls -1 "${DEPS_DIR}/debs"/*.deb | wc -l) packages..."
-                            for d in "${DEPS_DIR}"/debs/*.deb; do dpkg-deb -x "$d" "${DEPS_DIR}"; done
-                            touch "${DEPS_DIR}/.installed"
-                        fi
-                        export LD_LIBRARY_PATH="${DEPS_DIR}/usr/lib/x86_64-linux-gnu:${DEPS_DIR}/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH:-}"
-
-                        # A missing shared lib here is much easier to diagnose than the same
-                        # failure buried in a SessionNotCreatedException from inside surefire.
-                        missing=$(ldd "${CHROME_DIR}/chrome-linux64/chrome" | grep "not found" || true)
-                        if [ -n "${missing}" ]; then
-                            echo "[chrome-bootstrap] ldd reports missing libs:"
-                            echo "${missing}"
-                        fi
-                        echo "[chrome-bootstrap] $(chrome --version)"
-
-                        # Force the TCK's WebDriverManager to fetch a chromedriver matching
-                        # our installed Chrome. Without this, WDM defaults to "latest stable"
-                        # when it cannot detect a system browser, which on a fresh agent
-                        # doesn't match our pinned Chrome.
-                        SELENIUM_FLAG="-Dwdm.chromeDriverVersion=${RESOLVED_CHROME_VERSION}"
-                    else
-                        echo "[chrome-bootstrap] no Chrome resolved -> -Dtest.selenium=false (BaseITNG self-skips)."
-                        SELENIUM_FLAG="-Dtest.selenium=false"
-                    fi
-                    set -x
 
                     if [ -n "${GF_BUNDLE_URL}" ]; then
                         wget -q "${GF_BUNDLE_URL}" -O glassfish.zip
@@ -537,11 +438,12 @@ pipeline {
                             -DartifactId=glassfish -Dversion="${RESOLVED_GF_VERSION}" -Dpackaging=zip
                     fi
 
-                    # Failsafe gates on test failures via its own non-zero exit; report rendering and
-                    # human-readable summary are deferred to the next stage so a TCK failure fails fast.
+                    # Failsafe gates on test failures via its own non-zero exit; report rendering is
+                    # deferred to the next stage so a TCK failure fails fast.
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} clean install \\
-                        ${SKIP_OLD_TCK_FLAG} ${SELENIUM_FLAG} \\
+                        ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
+                        -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
                         -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
@@ -607,8 +509,7 @@ pipeline {
                         echo "******************************************************"
                     } > summary.txt
 
-                    # Defense-in-depth: the TCK stage already fails on failsafe errors, but if a future
-                    # change reorders or adds -Dmaven.test.failure.ignore=true, this catches it.
+                    # Defense-in-depth: catch any future change that adds -Dmaven.test.failure.ignore=true.
                     if [ "${FAILED}" -gt 0 ] || [ "${ERRORS}" -gt 0 ]; then
                         echo "TCK failures detected" >&2
                         exit 1
@@ -626,12 +527,11 @@ pipeline {
             when { expression { return !params.DRY_RUN } }
             steps {
                 withCredentials([file(credentialsId: 'secret-subkeys.asc', variable: 'KEYRING')]) {
-                    // Re-import GPG keys: agent may differ from Build & install stage.
-                    // -Dcentral.autoPublish=true both activates the central-release profile (via property
-                    // activation in impl/pom.xml and faces/api/pom.xml) AND tells the plugin to auto-publish.
-                    // A bare `mvn deploy` (without this property) does not activate the profile and does
-                    // not reach Maven Central, so only CI publishes.
-                    // With -Papi (5.0+), api and impl deploy in a single reactor invocation.
+                    // -Dcentral.autoPublish=true activates the central-release profile (via property
+                    // activation in impl/pom.xml and faces/api/pom.xml) AND tells the plugin to publish.
+                    // Without this property, `mvn deploy` does not activate the profile and does not
+                    // reach Maven Central, so only CI publishes.
+                    // With -Papi, api and impl deploy in a single reactor invocation.
                     sh '#!/bin/bash -ex\n' + GPG_INIT + '''
                         mvn -U -B ${MVN_EXTRA} ${MVN_API_PROFILE} \\
                             -DskipTests -Ddoclint=none \\
@@ -645,8 +545,8 @@ pipeline {
         stage('Bump to next snapshot') {
             steps {
                 sshagent(credentials: ['github-bot-ssh']) {
-                    // Same ordering as Build & install: faces commit FIRST so the mojarra bump commit
-                    // picks up the updated submodule gitlink alongside its own pom change.
+                    // Commit faces FIRST so the mojarra bump commit picks up the updated submodule
+                    // gitlink alongside its own pom change.
                     script {
                         if (env.SHOULD_BUILD_API == 'true') {
                             dir('faces') {
@@ -693,14 +593,13 @@ pipeline {
                         }
                     }
                 }
-                // Open a PR from the release branch to the source branch and squash-merge it, so the
-                // "Prepare release" + "Prepare next development cycle" commits land as a single commit
-                // titled "<version> has been released" on the source branch (e.g. 4.0.17 -> 4.0). The
-                // tag still references the original commits on the release branch, which we keep.
+                // Squash-merge the release branch into the source branch so "Prepare release" +
+                // "Prepare next development cycle" land as a single commit titled "<version> has been
+                // released". The tag still references the original commits on the release branch.
                 // For the API repo, only PR-merge when impl/pom.xml's jakarta.faces-api dep matches
-                // faces/api/pom.xml's version (i.e. impl + api are in lockstep this release); if they
-                // diverge we still push the API release branch but skip the PR-merge to avoid landing
-                // an unrelated version on the API source branch.
+                // faces/api/pom.xml's version (i.e. impl + api are in lockstep); if they diverge we
+                // still push the API release branch but skip the PR-merge to avoid landing an
+                // unrelated version on the API source branch.
                 withCredentials([string(credentialsId: 'github-bot-token', variable: 'GH_TOKEN')]) {
                     sh '''#!/bin/bash -ex
                         gh pr create --base "${BRANCH}" --head "${RELEASE_BRANCH}" \\
@@ -710,14 +609,12 @@ pipeline {
                             --subject "Mojarra ${RELEASE_VERSION} has been released" \\
                             --body "${BUILD_URL}"
                     '''
-                    // Close the milestone for the just-released version (if it exists), open a milestone
-                    // for the next snapshot, and draft+publish a GitHub release at the just-pushed tag
-                    // with auto-generated notes prepended by a one-line summary, the Maven Central link,
-                    // and a link to the closed milestone. Mojarra-only: the jakartaee/faces repo doesn't
-                    // track per-impl-release milestones or GitHub releases. Best-effort on milestones —
-                    // a missing/pre-existing milestone must not fail the publish stage; the artifact is
-                    // already on Maven Central. --latest=false leaves the "Set as the latest release"
-                    // box unchecked (we may release patches across multiple branches in any order).
+                    // Close the just-released milestone (if it exists), open a milestone for the next
+                    // snapshot, and draft+publish a GitHub release at the just-pushed tag with
+                    // auto-generated notes prepended by a one-line summary, the Maven Central link, and
+                    // a link to the closed milestone. Best-effort on milestones — a missing or
+                    // pre-existing milestone must not fail this stage. --latest=false because patches
+                    // may be released across multiple branches in any order.
                     sh '''#!/bin/bash -ex
                         NEXT_MILESTONE="${NEXT_VERSION%-SNAPSHOT}"
                         REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
@@ -737,10 +634,9 @@ pipeline {
                             gh api -X POST "repos/{owner}/{repo}/milestones" -f title="${NEXT_MILESTONE}"
                         fi
 
-                        # Find the previous *-RELEASE tag in the same major.minor family to anchor the
-                        # auto-generated notes. Without this, GitHub picks the most recent semver tag
-                        # repo-wide, which may belong to a different release line (e.g. 4.1.x while
-                        # releasing 4.0.x).
+                        # Anchor the auto-generated notes to the previous *-RELEASE tag in the same
+                        # major.minor family; otherwise GitHub picks the most recent semver tag
+                        # repo-wide, which may belong to a different release line.
                         PREVIOUS_TAG=$(git tag -l "${VERSION_FAMILY}.*-RELEASE" \\
                             | grep -v "^${RELEASE_TAG}$" | sort -V | tail -1)
                         if [ -n "${PREVIOUS_TAG}" ]; then
@@ -793,7 +689,7 @@ pipeline {
     }
 }
 
-// Bump the last numeric component of a dotted version. "5.0.0" -> "5.0.1", "4.1.10" -> "4.1.11".
+// Bump the last numeric component of a dotted version: "5.0.0" -> "5.0.1", "4.1.10" -> "4.1.11".
 // Caller must ensure the last component is numeric (see requireGaVersion).
 def bumpLastComponent(String version) {
     def parts = version.tokenize('.')
@@ -802,9 +698,9 @@ def bumpLastComponent(String version) {
 }
 
 // Validate that `version` is a dotted-numeric GA version with at least three components (rejects
-// -M2/-RC1 and ambiguous two-component values like "5.0" that would bumpLastComponent to a minor
-// rather than a patch). If `expectedPrefix` is non-null, also verify the version starts with
-// `expectedPrefix + '.'`. Aborts the build on mismatch.
+// -M2/-RC1 and ambiguous two-component values like "5.0" which would bumpLastComponent to a minor
+// rather than a patch). When `expectedPrefix` is non-null, also verifies the prefix match.
+// Aborts the build on mismatch.
 def requireGaVersion(String paramName, String version, String expectedPrefix) {
     if (!(version ==~ /\d+\.\d+\.\d+(\.\d+)*/)) {
         error "${paramName} '${version}' is not a dotted-numeric GA version with at least 3 components (e.g. 4.1.5). Milestone/RC and two-component versions are not supported."
@@ -814,10 +710,9 @@ def requireGaVersion(String paramName, String version, String expectedPrefix) {
     }
 }
 
-// Mirror of the TCK pom's `compute-csp-backport-flags` script (faces/tck/pom.xml, in profile
+// Mirror of the TCK pom's `compute-csp-backport-flags` script (faces/tck/pom.xml, profile
 // glassfish-ci-managed). Returns the `-Dit.test=... -Dfailsafe.failIfNoSpecifiedTests=false`
-// flags string when `version` falls in the CSP-backport range (Mojarra 4.0.17+ or 4.1.8+),
-// or "" otherwise. See env.TCK_IT_TEST_FLAGS for context.
+// flags when `version` falls in the CSP-backport range (4.0.17+ or 4.1.8+), or "" otherwise.
 def cspBackportItTestFlags(String version) {
     def m = (version =~ /^(\d+)\.(\d+)\.(\d+)$/)
     if (!m.matches()) return ''
@@ -830,16 +725,14 @@ def cspBackportItTestFlags(String version) {
     return ''
 }
 
-// Read impl/pom.xml's <dependency> block for jakarta.faces:jakarta.faces-api and return its <version>
-// literal. Returns "" if the dep is not declared. Assumes a literal <version> (not a property reference).
-// Uses readMavenPom from the Pipeline Utility Steps plugin (pre-approved by Jenkins script-security)
-// instead of XmlSlurper, which would require manual approval on a fresh controller.
+// Read impl/pom.xml's jakarta.faces:jakarta.faces-api dependency version literal. Returns "" if
+// the dep is not declared or if its <version> is null (e.g. managed via dependencyManagement),
+// letting the caller emit a clear error. Uses readMavenPom (pre-approved by Jenkins
+// script-security) instead of XmlSlurper, which would require manual approval.
 def readImplApiDepVersion() {
     def pom = readMavenPom(file: 'impl/pom.xml')
     for (dep in pom.dependencies) {
         if (dep.groupId == 'jakarta.faces' && dep.artifactId == 'jakarta.faces-api') {
-            // ?: '' guards against the case where the version is null (managed via dependencyManagement
-            // or a BOM); the caller's "" check then triggers a clear error instead of a NullPointerException.
             return dep.version ?: ''
         }
     }
