@@ -479,18 +479,21 @@ spec:
                     # failsafe-summary.xml produced by surefire-report:failsafe-report-only is
                     # parsed below to render summary.txt for the release archive.
                     cd "${TCK_BUNDLE_DIR}/tck"
-                    # TEMP: restricted to :faces-sigtest -am for fast iteration while validating
-                    # the report-parsing path. Revert to the full reactor before merging:
-                    #   -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run
+                    # TEMP: filtering ITs to JSFSigTestIT only, for fast iteration while
+                    # validating the report-parsing path. Revert before merging — drop the
+                    # `-Dit.test=** -Dfailsafe.failIfNoSpecifiedTests=false` line below
+                    # (TCK_IT_TEST_FLAGS already carries the CSP-backport overrides for
+                    # 4.0.17+/4.1.8+).
                     mvn ${MVN_EXTRA} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
                         -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
-                        -pl :faces-sigtest -am \\
+                        -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${FACES_VERSION}" \\
                         ${TCK_IT_TEST_FLAGS} \\
+                        -Dit.test='**/JSFSigTestIT.java' -Dfailsafe.failIfNoSpecifiedTests=false \\
                         surefire-report:failsafe-report-only -Daggregate=true \\
                         | tee "${WORKSPACE}/run.log"
 
