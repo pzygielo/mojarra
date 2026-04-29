@@ -73,15 +73,16 @@ def GIT_IDENTITY = '''
 def GPG_GIT_INIT = GPG_INIT + GIT_IDENTITY
 
 // Reusable shell snippet: refuse to start the release if origin already carries this version's
-// branch or tag. Recovery for any such conflict is to bump RELEASE_VERSION and re-run.
+// branch or tag. Recovery for any such conflict is to bump the version and re-run. Setting
+// TAG_ONLY=true skips the branch check (used for milestone/RC runs that never push the branch).
 // Expects bash variables BRANCH_NAME and TAG_NAME to be set in the surrounding script.
 def REMOTE_REF_CONFLICT_CHECK = '''
     if [ "${DRY_RUN}" != "true" ]; then
-        if git ls-remote --heads origin | grep -q "refs/heads/${BRANCH_NAME}$"; then
-            echo "Release branch ${BRANCH_NAME} already exists on origin; bump RELEASE_VERSION." >&2; exit 1
+        if [ "${TAG_ONLY:-false}" != "true" ] && git ls-remote --heads origin | grep -q "refs/heads/${BRANCH_NAME}$"; then
+            echo "Release branch ${BRANCH_NAME} already exists on origin; bump the version." >&2; exit 1
         fi
         if git ls-remote --tags origin | grep -q "refs/tags/${TAG_NAME}$"; then
-            echo "Release tag ${TAG_NAME} already exists on origin; bump RELEASE_VERSION." >&2; exit 1
+            echo "Release tag ${TAG_NAME} already exists on origin; bump the version." >&2; exit 1
         fi
     fi
     git branch -D "${BRANCH_NAME}" 2>/dev/null || true
@@ -152,8 +153,8 @@ spec:
     parameters {
         choice(name: 'BRANCH',          choices: ['4.0', '4.1', 'master'],
                description: 'Branch to release. master is currently 5.0.')
-        string(name: 'RELEASE_VERSION', defaultValue: '',
-               description: 'Leave blank to auto-infer from parent pom.xml (strips -SNAPSHOT). Must be a dotted-numeric GA version (e.g. 4.1.5); milestone/RC versions are not supported.')
+        string(name: 'MILESTONE_VERSION', defaultValue: '',
+               description: 'Leave blank for a GA release; otherwise the suffix for a milestone/RC release. Must match ^(M|RC)[0-9]+$ (e.g. M1, M2, RC1). When set, the release version is auto-derived as <pom-base-version>-<MILESTONE_VERSION> (e.g. 5.0.0-M2), tagged exactly that (no -RELEASE suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.')
         choice(name: 'JDK',             choices: ['', '11', '17', '21'],
                description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1, 17 for master). This is the JDK used to run the build & install.')
         choice(name: 'TCK_JDK',         choices: ['', '11', '17', '21'],
@@ -163,11 +164,11 @@ spec:
         string(name: 'GF_VERSION',      defaultValue: '',
                description: 'Leave blank to auto-infer from BRANCH. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
         string(name: 'GF_BUNDLE_URL',   defaultValue: '',
-               description: 'Optional GlassFish zip URL override. If set, GF_VERSION must also be set to match.')
+               description: 'Leave blank to resolve GlassFish from Maven Central via GF_VERSION; otherwise an explicit zip URL override (GF_VERSION must match the artifact version inside the zip).')
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
-               description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release).')
+               description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release) or when MILESTONE_VERSION is set.')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
-        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: 'Skip the old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run on 4.0/4.1. No-op on 5.0+ where the old-tck module no longer exists.')
+        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: '4.x only. Skip the old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run. No-op on 5.0+ where the old-tck module no longer exists.')
         booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push (locally installs the artifacts instead). Run TCK against the local install.')
     }
 
@@ -241,21 +242,34 @@ spec:
                 script {
                     def cfg = BRANCH_CONFIG[params.BRANCH]
 
-                    // Resolve RELEASE_VERSION from pom.xml if not supplied.
+                    // Read snapshot version from pom.xml; the release version is always derived from it.
                     def snapshot = sh(returnStdout: true, script:
                         "mvn -B ${env.HELP_PLUGIN}:evaluate -Dexpression=project.version -q -DforceStdout").trim()
                     if (!(snapshot ==~ /.*-SNAPSHOT$/)) {
                         error "Top-level pom version '${snapshot}' is not a -SNAPSHOT; refusing to release."
                     }
                     env.SNAPSHOT_VERSION = snapshot
-                    env.RELEASE_VERSION  = params.RELEASE_VERSION?.trim() ?: snapshot.replace('-SNAPSHOT', '')
+                    def baseVersion = snapshot.replace('-SNAPSHOT', '')
 
-                    // Sanity-check release version matches the chosen branch family AND is a dotted-numeric GA version.
-                    requireGaVersion('RELEASE_VERSION', env.RELEASE_VERSION, cfg.versionFamily)
-
-                    env.NEXT_VERSION   = bumpLastComponent(env.RELEASE_VERSION) + '-SNAPSHOT'
-                    env.RELEASE_TAG    = "${env.RELEASE_VERSION}-RELEASE"
-                    env.RELEASE_BRANCH = env.RELEASE_VERSION
+                    // Milestone/RC release path: derive RELEASE_VERSION as <pom-base>-<MILESTONE_VERSION>,
+                    // skip the GA-format check and the next-snapshot bump, and tag without -RELEASE suffix.
+                    def milestoneSuffix = params.MILESTONE_VERSION?.trim()
+                    if (milestoneSuffix) {
+                        if (!(milestoneSuffix ==~ /^(M|RC)\d+$/)) {
+                            error "MILESTONE_VERSION '${milestoneSuffix}' must match ^(M|RC)[0-9]+\$ (e.g. M1, M2, RC1, RC2)."
+                        }
+                        env.IS_MILESTONE    = 'true'
+                        env.RELEASE_VERSION = "${baseVersion}-${milestoneSuffix}"
+                        env.RELEASE_TAG     = env.RELEASE_VERSION
+                        env.RELEASE_BRANCH  = env.RELEASE_VERSION
+                    } else {
+                        env.IS_MILESTONE    = 'false'
+                        env.RELEASE_VERSION = baseVersion
+                        requireGaVersion('RELEASE_VERSION', env.RELEASE_VERSION, cfg.versionFamily)
+                        env.NEXT_VERSION    = bumpLastComponent(env.RELEASE_VERSION) + '-SNAPSHOT'
+                        env.RELEASE_TAG     = "${env.RELEASE_VERSION}-RELEASE"
+                        env.RELEASE_BRANCH  = env.RELEASE_VERSION
+                    }
 
                     // Mirror the TCK pom's `compute-csp-backport-flags` script for Mojarra versions
                     // covered by the CSP backport (#5606): a handful of TCK ITs need to be excluded
@@ -296,23 +310,35 @@ spec:
                             error "faces api pom version '${apiSnapshot}' is not a -SNAPSHOT; refusing to release."
                         }
                         env.API_SNAPSHOT_VERSION = apiSnapshot
-                        env.RESOLVED_API_VERSION = params.API_RELEASE_VERSION?.trim() ?: apiSnapshot.replace('-SNAPSHOT', '')
-                        requireGaVersion('API_RELEASE_VERSION', env.RESOLVED_API_VERSION, null)
-                        env.NEXT_API_VERSION   = bumpLastComponent(env.RESOLVED_API_VERSION) + '-SNAPSHOT'
-                        env.API_RELEASE_TAG    = "${env.RESOLVED_API_VERSION}-RELEASE"
-                        env.API_RELEASE_BRANCH = env.RESOLVED_API_VERSION
-                        echo "API snapshot: ${env.API_SNAPSHOT_VERSION} | API release: ${env.RESOLVED_API_VERSION} | Next: ${env.NEXT_API_VERSION}"
+                        if (env.IS_MILESTONE == 'true') {
+                            env.RESOLVED_API_VERSION = apiSnapshot.replace('-SNAPSHOT', '') + "-${milestoneSuffix}"
+                            env.API_RELEASE_TAG     = env.RESOLVED_API_VERSION
+                            env.API_RELEASE_BRANCH  = env.RESOLVED_API_VERSION
+                            echo "API snapshot: ${env.API_SNAPSHOT_VERSION} | API milestone: ${env.RESOLVED_API_VERSION}"
+                        } else {
+                            env.RESOLVED_API_VERSION = params.API_RELEASE_VERSION?.trim() ?: apiSnapshot.replace('-SNAPSHOT', '')
+                            requireGaVersion('API_RELEASE_VERSION', env.RESOLVED_API_VERSION, null)
+                            env.NEXT_API_VERSION    = bumpLastComponent(env.RESOLVED_API_VERSION) + '-SNAPSHOT'
+                            env.API_RELEASE_TAG     = "${env.RESOLVED_API_VERSION}-RELEASE"
+                            env.API_RELEASE_BRANCH  = env.RESOLVED_API_VERSION
+                            echo "API snapshot: ${env.API_SNAPSHOT_VERSION} | API release: ${env.RESOLVED_API_VERSION} | Next: ${env.NEXT_API_VERSION}"
+                        }
                     }
 
                     def jdkLabel = (env.RESOLVED_JDK == env.RESOLVED_TCK_JDK)
                         ? "JDK${env.RESOLVED_JDK}"
                         : "JDK${env.RESOLVED_JDK}/TCK-JDK${env.RESOLVED_TCK_JDK}"
                     def tckLabel = params.RUN_TCK ? "TCK ${env.RESOLVED_TCK_VERSION}" : "TCK skipped"
+                    def milestoneLabel = (env.IS_MILESTONE == 'true') ? ', milestone' : ''
                     def dryRunLabel = params.DRY_RUN ? ', dry-run' : ''
                     currentBuild.description = "${params.BRANCH} → ${env.RELEASE_VERSION}" +
                         ((env.SHOULD_BUILD_API == 'true') ? " + API ${env.RESOLVED_API_VERSION}" : ' (impl-only)') +
-                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${dryRunLabel})"
-                    echo "Snapshot: ${env.SNAPSHOT_VERSION} | Release: ${env.RELEASE_VERSION} | Next: ${env.NEXT_VERSION}"
+                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${milestoneLabel}${dryRunLabel})"
+                    if (env.IS_MILESTONE == 'true') {
+                        echo "Snapshot: ${env.SNAPSHOT_VERSION} | Milestone: ${env.RELEASE_VERSION} (snapshot left untouched)"
+                    } else {
+                        echo "Snapshot: ${env.SNAPSHOT_VERSION} | Release: ${env.RELEASE_VERSION} | Next: ${env.NEXT_VERSION}"
+                    }
                     if (env.SHOULD_BUILD_API == 'true') {
                         echo "Releasing impl AND API in the same reactor (jakarta.faces-api ${env.RESOLVED_API_VERSION})."
                     } else if (cfg.apiBranch != null) {
@@ -327,13 +353,15 @@ spec:
                 sshagent(credentials: ['github-bot-ssh']) {
                     withCredentials([file(credentialsId: 'secret-subkeys.asc', variable: 'KEYRING')]) {
                         // Mojarra: GPG init + git identity + branch/tag conflict check + local release branch.
-                        sh '#!/bin/bash -ex\nexport BRANCH_NAME="${RELEASE_BRANCH}" TAG_NAME="${RELEASE_TAG}"\n' +
+                        // TAG_ONLY=${IS_MILESTONE} skips the branch check on milestone runs (where the
+                        // local branch is never pushed).
+                        sh '#!/bin/bash -ex\nexport BRANCH_NAME="${RELEASE_BRANCH}" TAG_NAME="${RELEASE_TAG}" TAG_ONLY="${IS_MILESTONE}"\n' +
                            GPG_GIT_INIT + REMOTE_REF_CONFLICT_CHECK
                         // Same ceremony for the faces submodule when releasing the API alongside.
                         script {
                             if (env.SHOULD_BUILD_API == 'true') {
                                 dir('faces') {
-                                    sh '#!/bin/bash -ex\nexport BRANCH_NAME="${API_RELEASE_BRANCH}" TAG_NAME="${API_RELEASE_TAG}"\n' +
+                                    sh '#!/bin/bash -ex\nexport BRANCH_NAME="${API_RELEASE_BRANCH}" TAG_NAME="${API_RELEASE_TAG}" TAG_ONLY="${IS_MILESTONE}"\n' +
                                        GIT_IDENTITY + REMOTE_REF_CONFLICT_CHECK
                                 }
                             }
@@ -543,6 +571,7 @@ spec:
         }
 
         stage('Bump to next snapshot') {
+            when { expression { return env.IS_MILESTONE != 'true' } }
             steps {
                 sshagent(credentials: ['github-bot-ssh']) {
                     // Commit faces FIRST so the mojarra bump commit picks up the updated submodule
@@ -577,104 +606,112 @@ spec:
         stage('Publish to GitHub') {
             when { expression { return !params.DRY_RUN } }
             steps {
+                // Push the tag (and the release branch on GA runs only — milestone runs leave the
+                // source branch untouched and never push the local release branch).
                 sshagent(credentials: ['github-bot-ssh']) {
                     sh '''#!/bin/bash -ex
-                        git push origin "${RELEASE_BRANCH}"
+                        if [ "${IS_MILESTONE}" != "true" ]; then
+                            git push origin "${RELEASE_BRANCH}"
+                        fi
                         git push origin "${RELEASE_TAG}"
                     '''
                     script {
                         if (env.SHOULD_BUILD_API == 'true') {
                             dir('faces') {
                                 sh '''#!/bin/bash -ex
-                                    git push origin "${API_RELEASE_BRANCH}"
+                                    if [ "${IS_MILESTONE}" != "true" ]; then
+                                        git push origin "${API_RELEASE_BRANCH}"
+                                    fi
                                     git push origin "${API_RELEASE_TAG}"
                                 '''
                             }
                         }
                     }
                 }
-                // Squash-merge the release branch into the source branch so "Prepare release" +
-                // "Prepare next development cycle" land as a single commit titled "<version> has been
-                // released". The tag still references the original commits on the release branch.
+                // GA-only: squash-merge the release branch into the source branch so "Prepare release"
+                // + "Prepare next development cycle" land as a single commit titled
+                // "<version> has been released", manage milestones, and draft+publish a GitHub release.
                 // For the API repo, only PR-merge when impl/pom.xml's jakarta.faces-api dep matches
                 // faces/api/pom.xml's version (i.e. impl + api are in lockstep); if they diverge we
                 // still push the API release branch but skip the PR-merge to avoid landing an
                 // unrelated version on the API source branch.
-                withCredentials([string(credentialsId: 'github-bot-token', variable: 'GH_TOKEN')]) {
-                    sh '''#!/bin/bash -ex
-                        gh pr create --base "${BRANCH}" --head "${RELEASE_BRANCH}" \\
-                            --title "Mojarra ${RELEASE_VERSION} has been released" \\
-                            --body "${BUILD_URL}"
-                        gh pr merge "${RELEASE_BRANCH}" --squash \\
-                            --subject "Mojarra ${RELEASE_VERSION} has been released" \\
-                            --body "${BUILD_URL}"
-                    '''
-                    // Close the just-released milestone (if it exists), open a milestone for the next
-                    // snapshot, and draft+publish a GitHub release at the just-pushed tag with
-                    // auto-generated notes prepended by a one-line summary, the Maven Central link, and
-                    // a link to the closed milestone. Best-effort on milestones — a missing or
-                    // pre-existing milestone must not fail this stage. --latest=false because patches
-                    // may be released across multiple branches in any order.
-                    sh '''#!/bin/bash -ex
-                        NEXT_MILESTONE="${NEXT_VERSION%-SNAPSHOT}"
-                        REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
+                script {
+                    if (env.IS_MILESTONE != 'true') {
+                        withCredentials([string(credentialsId: 'github-bot-token', variable: 'GH_TOKEN')]) {
+                            sh '''#!/bin/bash -ex
+                                gh pr create --base "${BRANCH}" --head "${RELEASE_BRANCH}" \\
+                                    --title "Mojarra ${RELEASE_VERSION} has been released" \\
+                                    --body "${BUILD_URL}"
+                                gh pr merge "${RELEASE_BRANCH}" --squash \\
+                                    --subject "Mojarra ${RELEASE_VERSION} has been released" \\
+                                    --body "${BUILD_URL}"
+                            '''
+                            // Close the just-released milestone (if it exists), open a milestone for the
+                            // next snapshot, and draft+publish a GitHub release at the just-pushed tag
+                            // with auto-generated notes prepended by a one-line summary, the Maven Central
+                            // link, and a link to the closed milestone. Best-effort on milestones — a
+                            // missing or pre-existing milestone must not fail this stage. --latest=false
+                            // because patches may be released across multiple branches in any order.
+                            sh '''#!/bin/bash -ex
+                                NEXT_MILESTONE="${NEXT_VERSION%-SNAPSHOT}"
+                                REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 
-                        MILESTONE_NUMBER=$(gh api "repos/{owner}/{repo}/milestones?state=open&per_page=100" \\
-                            --jq ".[] | select(.title==\\"${RELEASE_VERSION}\\") | .number")
-                        if [ -n "${MILESTONE_NUMBER}" ]; then
-                            gh api -X PATCH "repos/{owner}/{repo}/milestones/${MILESTONE_NUMBER}" -f state=closed
-                        else
-                            echo "No open milestone titled '${RELEASE_VERSION}' to close; skipping."
-                        fi
+                                MILESTONE_NUMBER=$(gh api "repos/{owner}/{repo}/milestones?state=open&per_page=100" \\
+                                    --jq ".[] | select(.title==\\"${RELEASE_VERSION}\\") | .number")
+                                if [ -n "${MILESTONE_NUMBER}" ]; then
+                                    gh api -X PATCH "repos/{owner}/{repo}/milestones/${MILESTONE_NUMBER}" -f state=closed
+                                else
+                                    echo "No open milestone titled '${RELEASE_VERSION}' to close; skipping."
+                                fi
 
-                        if gh api "repos/{owner}/{repo}/milestones?state=all&per_page=100" \\
-                                --jq ".[] | select(.title==\\"${NEXT_MILESTONE}\\") | .number" | grep -q .; then
-                            echo "Milestone '${NEXT_MILESTONE}' already exists; skipping create."
-                        else
-                            gh api -X POST "repos/{owner}/{repo}/milestones" -f title="${NEXT_MILESTONE}"
-                        fi
+                                if gh api "repos/{owner}/{repo}/milestones?state=all&per_page=100" \\
+                                        --jq ".[] | select(.title==\\"${NEXT_MILESTONE}\\") | .number" | grep -q .; then
+                                    echo "Milestone '${NEXT_MILESTONE}' already exists; skipping create."
+                                else
+                                    gh api -X POST "repos/{owner}/{repo}/milestones" -f title="${NEXT_MILESTONE}"
+                                fi
 
-                        # Anchor the auto-generated notes to the previous *-RELEASE tag in the same
-                        # major.minor family; otherwise GitHub picks the most recent semver tag
-                        # repo-wide, which may belong to a different release line.
-                        PREVIOUS_TAG=$(git tag -l "${VERSION_FAMILY}.*-RELEASE" \\
-                            | grep -v "^${RELEASE_TAG}$" | sort -V | tail -1)
-                        if [ -n "${PREVIOUS_TAG}" ]; then
-                            GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
-                                -f tag_name="${RELEASE_TAG}" -f target_commitish="${BRANCH}" \\
-                                -f previous_tag_name="${PREVIOUS_TAG}" --jq .body)
-                        else
-                            GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
-                                -f tag_name="${RELEASE_TAG}" -f target_commitish="${BRANCH}" --jq .body)
-                        fi
+                                # Anchor the auto-generated notes to the previous *-RELEASE tag in the same
+                                # major.minor family; otherwise GitHub picks the most recent semver tag
+                                # repo-wide, which may belong to a different release line.
+                                PREVIOUS_TAG=$(git tag -l "${VERSION_FAMILY}.*-RELEASE" \\
+                                    | grep -v "^${RELEASE_TAG}$" | sort -V | tail -1)
+                                if [ -n "${PREVIOUS_TAG}" ]; then
+                                    GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
+                                        -f tag_name="${RELEASE_TAG}" -f target_commitish="${BRANCH}" \\
+                                        -f previous_tag_name="${PREVIOUS_TAG}" --jq .body)
+                                else
+                                    GENERATED=$(gh api -X POST "repos/{owner}/{repo}/releases/generate-notes" \\
+                                        -f tag_name="${RELEASE_TAG}" -f target_commitish="${BRANCH}" --jq .body)
+                                fi
 
-                        {
-                            echo "${RELEASE_VERSION} has been released"
-                            echo
-                            echo "Maven Central: https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/${RELEASE_VERSION}/"
-                            if [ -n "${MILESTONE_NUMBER}" ]; then
-                                echo "Milestone: https://github.com/${REPO_SLUG}/milestone/${MILESTONE_NUMBER}?closed=1"
-                            fi
-                            echo
-                            echo "${GENERATED}"
-                        } > release-notes.md
+                                {
+                                    echo "${RELEASE_VERSION} has been released"
+                                    echo
+                                    echo "Maven Central: https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/${RELEASE_VERSION}/"
+                                    if [ -n "${MILESTONE_NUMBER}" ]; then
+                                        echo "Milestone: https://github.com/${REPO_SLUG}/milestone/${MILESTONE_NUMBER}?closed=1"
+                                    fi
+                                    echo
+                                    echo "${GENERATED}"
+                                } > release-notes.md
 
-                        gh release create "${RELEASE_TAG}" --target "${BRANCH}" \\
-                            --title "${RELEASE_VERSION}" \\
-                            --notes-file release-notes.md \\
-                            --latest=false
-                    '''
-                    script {
-                        if (env.SHOULD_BUILD_API == 'true' && env.IMPL_API_DEP_VERSION == env.API_SNAPSHOT_VERSION) {
-                            dir('faces') {
-                                sh '''#!/bin/bash -ex
-                                    gh pr create --base "${API_BRANCH}" --head "${API_RELEASE_BRANCH}" \\
-                                        --title "Faces API ${RESOLVED_API_VERSION} has been released" \\
-                                        --body "${BUILD_URL}"
-                                    gh pr merge "${API_RELEASE_BRANCH}" --squash \\
-                                        --subject "Faces API ${RESOLVED_API_VERSION} has been released" \\
-                                        --body "${BUILD_URL}"
-                                '''
+                                gh release create "${RELEASE_TAG}" --target "${BRANCH}" \\
+                                    --title "${RELEASE_VERSION}" \\
+                                    --notes-file release-notes.md \\
+                                    --latest=false
+                            '''
+                            if (env.SHOULD_BUILD_API == 'true' && env.IMPL_API_DEP_VERSION == env.API_SNAPSHOT_VERSION) {
+                                dir('faces') {
+                                    sh '''#!/bin/bash -ex
+                                        gh pr create --base "${API_BRANCH}" --head "${API_RELEASE_BRANCH}" \\
+                                            --title "Faces API ${RESOLVED_API_VERSION} has been released" \\
+                                            --body "${BUILD_URL}"
+                                        gh pr merge "${API_RELEASE_BRANCH}" --squash \\
+                                            --subject "Faces API ${RESOLVED_API_VERSION} has been released" \\
+                                            --body "${BUILD_URL}"
+                                    '''
+                                }
                             }
                         }
                     }
@@ -684,7 +721,12 @@ spec:
     }
 
     post {
-        success { echo "Released ${env.RELEASE_VERSION} from branch ${params.BRANCH}." }
+        success {
+            script {
+                def kind = (env.IS_MILESTONE == 'true') ? 'Milestone' : 'Released'
+                echo "${kind} ${env.RELEASE_VERSION} from branch ${params.BRANCH}."
+            }
+        }
         failure { echo "Release of ${env.RELEASE_VERSION} from ${params.BRANCH} FAILED." }
     }
 }
