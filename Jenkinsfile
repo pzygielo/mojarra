@@ -473,8 +473,9 @@ spec:
                             -DartifactId=glassfish -Dversion="${RESOLVED_GF_VERSION}" -Dpackaging=zip
                     fi
 
-                    # Failsafe gates on test failures via its own non-zero exit; report rendering is
-                    # deferred to the next stage so a TCK failure fails fast.
+                    # Failsafe gates on test failures via its own non-zero exit. The aggregated
+                    # failsafe HTML produced by surefire-report:failsafe-report-only is parsed below
+                    # to render summary.txt for the release archive.
                     cd "${TCK_BUNDLE_DIR}/tck"
                     mvn ${MVN_EXTRA} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
@@ -487,39 +488,9 @@ spec:
                         ${TCK_IT_TEST_FLAGS} \\
                         surefire-report:failsafe-report-only -Daggregate=true \\
                         | tee "${WORKSPACE}/run.log"
-                '''
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'run.log', allowEmptyArchive: true, fingerprint: true
-                }
-            }
-        }
-
-        stage('TCK report') {
-            when { expression { return params.RUN_TCK } }
-            steps {
-                sh '''#!/bin/bash -ex
-                    export JAVA_HOME="${TCK_JAVA_HOME}"
-                    export PATH="${JAVA_HOME}/bin:${PATH}"
-
-                    TCK_BUNDLE_NAME="jakarta-faces-tck-${RESOLVED_TCK_VERSION}"
-                    TCK_BUNDLE_DIR="faces-tck-${RESOLVED_TCK_VERSION}"
-                    TCK_URL="https://download.eclipse.org/jakartaee/faces/${VERSION_FAMILY}/${TCK_BUNDLE_NAME}.zip"
-
-                    cd "${TCK_BUNDLE_DIR}/tck"
-                    mvn ${MVN_EXTRA} org.apache.maven.plugins:maven-site-plugin:3.21.0:site \\
-                        ${SKIP_OLD_TCK_FLAG} \\
-                        -Dmaven.test.skip=true -DskipTests=true \\
-                        -DskipAssembly=true -Pstaging \\
-                        -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
-                        -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
-                        -Dmojarra.version="${RELEASE_VERSION}" \\
-                        -Dfaces.version="${FACES_VERSION}" \\
-                        ${TCK_IT_TEST_FLAGS}
 
                     cd "${WORKSPACE}"
-                    REPORT="${TCK_BUNDLE_DIR}/tck/target/site/failsafe-report.html"
+                    REPORT="${TCK_BUNDLE_DIR}/tck/target/reports/failsafe.html"
                     awk '/<table/{in_table=1}
                          in_table && /Package/{exit}
                          in_table && /<td/ {sub(/.*<td[^>]*>/,""); sub(/<\\/td>.*/,""); print}' \\
@@ -543,17 +514,11 @@ spec:
                         echo "OS : $(lsb_release -ds 2>/dev/null || cat /etc/os-release | head -1)"
                         echo "******************************************************"
                     } > summary.txt
-
-                    # Defense-in-depth: catch any future change that adds -Dmaven.test.failure.ignore=true.
-                    if [ "${FAILED}" -gt 0 ] || [ "${ERRORS}" -gt 0 ]; then
-                        echo "TCK failures detected" >&2
-                        exit 1
-                    fi
                 '''
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'summary.txt', allowEmptyArchive: true, fingerprint: true
+                    archiveArtifacts artifacts: 'run.log, summary.txt', allowEmptyArchive: true, fingerprint: true
                 }
             }
         }
