@@ -475,15 +475,14 @@ spec:
                             -DartifactId=glassfish -Dversion="${RESOLVED_GF_VERSION}" -Dpackaging=zip
                     fi
 
-                    # Failsafe gates on test failures via its own non-zero exit. The aggregated
-                    # failsafe-summary.xml produced by surefire-report:failsafe-report-only is
-                    # parsed below to render summary.txt for the release archive.
+                    # Failsafe gates on test failures via its own non-zero exit. Per-module
+                    # failsafe-summary.xml files are then aggregated below to render summary.txt
+                    # for the release archive.
                     cd "${TCK_BUNDLE_DIR}/tck"
-                    # TEMP: filtering ITs to JSFSigTestIT only, for fast iteration while
-                    # validating the report-parsing path. Revert before merging — drop the
-                    # `-Dit.test=** -Dfailsafe.failIfNoSpecifiedTests=false` line below
-                    # (TCK_IT_TEST_FLAGS already carries the CSP-backport overrides for
-                    # 4.0.17+/4.1.8+).
+                    # TEMP: filtering ITs to a tiny subset (sigtest + one GF-based + one
+                    # old-tck-selenium) for fast iteration while validating the multi-module
+                    # failsafe-summary.xml aggregation. Revert before merging — drop the
+                    # `-Dit.test=** -Dfailsafe.failIfNoSpecifiedTests=false` line below.
                     mvn ${MVN_EXTRA} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
                         -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
@@ -493,31 +492,37 @@ spec:
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${FACES_VERSION}" \\
                         ${TCK_IT_TEST_FLAGS} \\
-                        -Dit.test='**/JSFSigTestIT.java' -Dfailsafe.failIfNoSpecifiedTests=false \\
-                        surefire-report:failsafe-report-only -Daggregate=true \\
+                        -Dit.test='**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java' -Dfailsafe.failIfNoSpecifiedTests=false \\
                         | tee "${WORKSPACE}/run.log"
 
                     cd "${WORKSPACE}"
-                    # The published TCK pom configures the failsafe-report goal to emit only the
-                    # aggregated XML (target/failsafe-reports/failsafe-summary.xml), not HTML — so
-                    # parse the XML directly. Format:
+                    # Each new-TCK module writes its own target/failsafe-reports/failsafe-summary.xml
+                    # during the failsafe verify phase. The TCK pom doesn't aggregate these into a
+                    # single XML at the parent (the `-Daggregate=true` flag aggregates HTML, not
+                    # XML), so sum across all modules manually. Old-tck modules use ant/javatest
+                    # and don't produce a failsafe-summary.xml; their results live in run.log only.
+                    # XML format per module:
                     #   <failsafe-summary ...>
-                    #     <completed>N</completed>  (= passed + failed + errors)
+                    #     <completed>N</completed>  (= passed + failed + errors, excluding skipped)
                     #     <errors>N</errors>
                     #     <failures>N</failures>
                     #     <skipped>N</skipped>
                     #   </failsafe-summary>
-                    SUMMARY="${TCK_BUNDLE_DIR}/tck/target/failsafe-reports/failsafe-summary.xml"
-                    if [ ! -f "${SUMMARY}" ]; then
-                        echo "Aggregated failsafe-summary.xml not found at ${SUMMARY}." >&2
-                        echo "[diag] failsafe artefacts under target:" >&2
-                        find "${TCK_BUNDLE_DIR}/tck/target" -type f -name 'failsafe*' >&2 || true
+                    SUMMARIES=$(find "${TCK_BUNDLE_DIR}/tck" -path '*/target/failsafe-reports/failsafe-summary.xml')
+                    if [ -z "${SUMMARIES}" ]; then
+                        echo "No failsafe-summary.xml files found under ${TCK_BUNDLE_DIR}/tck." >&2
                         exit 1
                     fi
-                    extract() { sed -n "s|.*<$1>\\([0-9]*\\)</$1>.*|\\1|p" "${SUMMARY}" | head -1; }
-                    COMPLETED=$(extract completed)
-                    ERRORS=$(extract errors)
-                    FAILED=$(extract failures)
+                    extract() { sed -n "s|.*<$2>\\([0-9]*\\)</$2>.*|\\1|p" "$1" | head -1; }
+                    COMPLETED=0; ERRORS=0; FAILED=0
+                    for f in ${SUMMARIES}; do
+                        c=$(extract "$f" completed); c=${c:-0}
+                        e=$(extract "$f" errors);    e=${e:-0}
+                        F=$(extract "$f" failures);  F=${F:-0}
+                        COMPLETED=$(( COMPLETED + c ))
+                        ERRORS=$(( ERRORS + e ))
+                        FAILED=$(( FAILED + F ))
+                    done
                     PASSED=$(( COMPLETED - ERRORS - FAILED ))
 
                     {
