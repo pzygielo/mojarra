@@ -19,6 +19,8 @@ In case you want to checkout this repository and manually build from source your
 
 4. The binary is now available as `target/mojarra-5.x.x-SNAPSHOT.jar`.
 
+Note that since 5.0 the API part is split into [Faces project](https://github.com/jakartaee/faces/tree/5.0).
+
 ### Mojarra 4.1
 
 1. Make sure that you have JDK 17 and Maven installed.
