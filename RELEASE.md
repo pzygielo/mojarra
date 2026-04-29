@@ -52,7 +52,7 @@ The `Release` column is the release line dropdown value. The mojarra git branch 
 
 `API version` is the value passed as `-Dfaces.version` to the TCK build (the published `jakarta.faces-api` jar version that the TCK compiles against). On 4.x the API was bundled with the impl, so this is just the GA on Maven Central. On 5.0+ it tracks the standalone `jakarta.faces-api` artifact — bump it together with the matching API release.
 
-`Selenium` is `seleniumEnabled` in the config: `on` means BaseITNG runs against the agent pod's Chrome via `-Dtest.selenium=true`; `off` means the suite self-skips because the TCK pins a CDP major (e.g. 4.0's v108) that's outside Selenium's fudge range against current Chrome.
+`Selenium` is `seleniumEnabled` in the config: `on` means BaseITNG runs against the agent pod's Chrome via `-Dtest.selenium=true`; `off` means the BaseITNG suite self-skips because the TCK pins a CDP major (e.g. 4.0's v108) that's outside Selenium's fudge range against current Chrome — browser-driven tests then fall back to HtmlUnit only.
 
 ## Troubleshooting
 
