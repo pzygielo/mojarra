@@ -162,9 +162,9 @@ spec:
         string(name: 'MILESTONE_VERSION', defaultValue: '',
                description: 'Leave blank for a GA release; otherwise the suffix for a milestone/RC release. Must match ^(M|RC)[0-9]+$ (e.g. M1, M2, RC1). When set, the release version is auto-derived as <pom-base-version>-<MILESTONE_VERSION> (e.g. 5.0.0-M2), tagged exactly that (no -RELEASE suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.')
         choice(name: 'JDK',             choices: JDK_VERSION_CHOICES,
-               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1 and master). This is the JDK used to run the build & install.')
+               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 17 for 4.1 and 5.0). This is the JDK used to run the build & install.')
         choice(name: 'TCK_JDK',         choices: JDK_VERSION_CHOICES,
-               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 21 for 4.1 and master). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
+               description: 'Leave blank to auto-infer from BRANCH (11 for 4.0, 21 for 4.1 and 5.0). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
         string(name: 'TCK_VERSION',     defaultValue: '',
                description: 'Leave blank to auto-infer from BRANCH.')
         string(name: 'GF_VERSION',      defaultValue: '',
