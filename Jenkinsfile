@@ -167,7 +167,7 @@ spec:
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release).')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
-        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: true, description: 'Skip the old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run on 4.0/4.1. No-op on 5.0+ where the old-tck module no longer exists.')
+        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: 'Skip the old-tck module (-Dtck.old.skip=true); cuts at least 2 hours off the TCK run on 4.0/4.1. No-op on 5.0+ where the old-tck module no longer exists.')
         booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push (locally installs the artifacts instead). Run TCK against the local install.')
     }
 
