@@ -476,14 +476,17 @@ spec:
                     fi
 
                     # Failsafe gates on test failures via its own non-zero exit. The aggregated
-                    # failsafe HTML produced by surefire-report:failsafe-report-only is parsed below
-                    # to render summary.txt for the release archive.
+                    # failsafe-summary.xml produced by surefire-report:failsafe-report-only is
+                    # parsed below to render summary.txt for the release archive.
                     cd "${TCK_BUNDLE_DIR}/tck"
+                    # TEMP: restricted to :faces-sigtest -am for fast iteration while validating
+                    # the report-parsing path. Revert to the full reactor before merging:
+                    #   -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run
                     mvn ${MVN_EXTRA} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
                         -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
-                        -pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run \\
+                        -pl :faces-sigtest -am \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${FACES_VERSION}" \\
@@ -492,26 +495,27 @@ spec:
                         | tee "${WORKSPACE}/run.log"
 
                     cd "${WORKSPACE}"
-                    # The aggregated failsafe HTML's path differs by maven-surefire-report-plugin
-                    # version and per-pom config (newer writes target/reports/failsafe.html, older
-                    # writes target/site/failsafe-report.html, some configs nest deeper). Locate
-                    # it instead of hardcoding.
-                    REPORT=$(find "${TCK_BUNDLE_DIR}/tck/target" \
-                        \\( -name 'failsafe.html' -o -name 'failsafe-report.html' \\) | head -1)
-                    if [ -z "${REPORT}" ]; then
-                        echo "Aggregated failsafe report not found under ${TCK_BUNDLE_DIR}/tck/target." >&2
-                        echo "[diag] HTML / failsafe artefacts found under target:" >&2
-                        find "${TCK_BUNDLE_DIR}/tck/target" -type f \
-                            \\( -name '*.html' -o -name 'failsafe*' \\) >&2 || true
+                    # The published TCK pom configures the failsafe-report goal to emit only the
+                    # aggregated XML (target/failsafe-reports/failsafe-summary.xml), not HTML — so
+                    # parse the XML directly. Format:
+                    #   <failsafe-summary ...>
+                    #     <completed>N</completed>  (= passed + failed + errors)
+                    #     <errors>N</errors>
+                    #     <failures>N</failures>
+                    #     <skipped>N</skipped>
+                    #   </failsafe-summary>
+                    SUMMARY="${TCK_BUNDLE_DIR}/tck/target/failsafe-reports/failsafe-summary.xml"
+                    if [ ! -f "${SUMMARY}" ]; then
+                        echo "Aggregated failsafe-summary.xml not found at ${SUMMARY}." >&2
+                        echo "[diag] failsafe artefacts under target:" >&2
+                        find "${TCK_BUNDLE_DIR}/tck/target" -type f -name 'failsafe*' >&2 || true
                         exit 1
                     fi
-                    awk '/<table/{in_table=1}
-                         in_table && /Package/{exit}
-                         in_table && /<td/ {sub(/.*<td[^>]*>/,""); sub(/<\\/td>.*/,""); print}' \\
-                        "${REPORT}" > tmp_result.txt
-                    PASSED=$(sed '1q;d' tmp_result.txt)
-                    ERRORS=$(sed '2q;d' tmp_result.txt)
-                    FAILED=$(sed '3q;d' tmp_result.txt)
+                    extract() { sed -n "s|.*<$1>\\([0-9]*\\)</$1>.*|\\1|p" "${SUMMARY}" | head -1; }
+                    COMPLETED=$(extract completed)
+                    ERRORS=$(extract errors)
+                    FAILED=$(extract failures)
+                    PASSED=$(( COMPLETED - ERRORS - FAILED ))
 
                     {
                         echo "******************************************************"
