@@ -27,7 +27,7 @@ In the example below we assume releasing **Mojarra 4.0.17**.
    - `GF_BUNDLE_URL` — alternative GlassFish zip URL. If set, also set `GF_VERSION` to match the artifact version inside the zip.
    - `API_RELEASE_VERSION` — 5.0+ only. Default: stripped from `faces/api/pom.xml`. Ignored when `impl/pom.xml` already pins `jakarta.faces-api` to a GA version (impl-only patch release, no new API artifact cut), or when `MILESTONE_VERSION` is set.
    - `RUN_TCK` — uncheck to skip the TCK stage. Default: checked.
-   - `SKIP_OLD_TCK` — check to skip the old-tck JavaTest modules on 4.0/4.1 (excluded from the reactor entirely via `-pl`; cuts at least 2 hours off the TCK run). No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected. Default: unchecked.
+   - `SKIP_OLD_TCK` — check to skip the old-tck JavaTest modules on 4.0/4.1 (excluded from the reactor entirely via `-pl`; cuts nearly 3 hours off the TCK run). No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected. Default: unchecked.
    - `DRY_RUN` — check to do everything except Maven Central deploy and GitHub push. Default: checked. Useful for rehearsals.
    - `TEST_RUN` — only meaningful as a sub-toggle of `DRY_RUN`: filters the TCK to a tiny representative subset (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when `SKIP_OLD_TCK` is unchecked). Drops run time to ~10 min. Hard-gated: silently ignored when `DRY_RUN` is unchecked, since the run is not TCK-conformant and must never produce a published release. Default: unchecked.
 5. Click **Build**.
