@@ -77,6 +77,15 @@ def GIT_IDENTITY = '''
     git config user.name  "Eclipse Mojarra Bot"
 '''
 
+// Reusable shell snippet: pre-populate known_hosts so `git push origin git@github.com:...` doesn't
+// fail with "Host key verification failed". Jenkins' GitSCM step handles this internally for the
+// initial checkout, but pushes from shell steps inside `sshagent` need it explicitly. Idempotent.
+def KNOWN_HOSTS_INIT = '''
+    mkdir -p ~/.ssh
+    ssh-keyscan -t rsa,ed25519,ecdsa github.com >> ~/.ssh/known_hosts 2>/dev/null
+    chmod 600 ~/.ssh/known_hosts
+'''
+
 def GPG_GIT_INIT = GPG_INIT + GIT_IDENTITY
 
 // Reusable shell snippet: refuse to start the release if origin already carries this version's
@@ -659,7 +668,7 @@ spec:
                 // Push the tag (and the release branch on GA runs only — milestone runs leave the
                 // source branch untouched and never push the local release branch).
                 sshagent(credentials: ['github-bot-ssh']) {
-                    sh '''#!/bin/bash -ex
+                    sh '#!/bin/bash -ex\n' + KNOWN_HOSTS_INIT + '''
                         if [ "${IS_MILESTONE}" != "true" ]; then
                             git push origin "${RELEASE_BRANCH}"
                         fi
