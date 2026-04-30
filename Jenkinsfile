@@ -86,6 +86,20 @@ def KNOWN_HOSTS_INIT = '''
     chmod 600 ~/.ssh/known_hosts
 '''
 
+// Reusable shell snippet: install GitHub CLI into ~/bin and prepend it to PATH. The Eclipse CI pod
+// image (basic-ubuntu-chrome) doesn't ship `gh`, so any sh that calls it must run this first.
+// Idempotent: skips the download when gh is already on PATH (e.g. from an earlier sh in the same
+// pod, where ~/bin survives because jenkins-home is the pod's HOME volume).
+def GH_INSTALL = '''
+    if ! command -v gh >/dev/null 2>&1; then
+        GH_VERSION=2.62.0
+        mkdir -p "${HOME}/bin"
+        curl -sSL "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \\
+            | tar -xz -C "${HOME}/bin" --strip-components=2 "gh_${GH_VERSION}_linux_amd64/bin/gh"
+    fi
+    export PATH="${HOME}/bin:${PATH}"
+'''
+
 def GPG_GIT_INIT = GPG_INIT + GIT_IDENTITY
 
 // Reusable shell snippet: refuse to start the release if origin already carries this version's
@@ -196,8 +210,8 @@ spec:
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
         booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: '4.x only. Skip the old-tck JavaTest modules (excluded from the reactor entirely via -pl); cuts nearly 3 hours off the TCK run. No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected by this flag.')
         booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push.')
-        booleanParam(name: 'SKIP_DEPLOY', defaultValue: false, description: 'Skip the Maven Central deploy stage only (still pushes branch/tag and creates the GitHub release). Use for resuming a previous run after Maven Central already published, or for pipeline-debug runs that exercise Publish to GitHub without re-deploying.')
         booleanParam(name: 'TEST_RUN',    defaultValue: false, description: 'Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked). Ignored when DRY_RUN is unchecked, since the run is not TCK-conformant and must never be published.')
+        booleanParam(name: 'SKIP_DEPLOY', defaultValue: false, description: 'Skip the Maven Central deploy stage only (still pushes branch/tag and creates the GitHub release). Use for resuming a previous run after Maven Central already published, or for pipeline-debug runs that exercise Publish to GitHub without re-deploying.')
     }
 
     options {
@@ -698,7 +712,7 @@ spec:
                 script {
                     if (env.IS_MILESTONE != 'true') {
                         withCredentials([string(credentialsId: 'github-bot-token', variable: 'GH_TOKEN')]) {
-                            sh '''#!/bin/bash -ex
+                            sh '#!/bin/bash -ex\n' + GH_INSTALL + '''
                                 gh pr create --base "${IMPL_BRANCH}" --head "${RELEASE_BRANCH}" \\
                                     --title "Mojarra ${RELEASE_VERSION} has been released" \\
                                     --body "${BUILD_URL}"
@@ -712,7 +726,7 @@ spec:
                             // link, and a link to the closed milestone. Best-effort on milestones — a
                             // missing or pre-existing milestone must not fail this stage. --latest=false
                             // because patches may be released across multiple branches in any order.
-                            sh '''#!/bin/bash -ex
+                            sh '#!/bin/bash -ex\n' + GH_INSTALL + '''
                                 NEXT_MILESTONE="${NEXT_VERSION%-SNAPSHOT}"
                                 REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
 
@@ -763,7 +777,7 @@ spec:
                             '''
                             if (env.SHOULD_BUILD_API == 'true' && env.IMPL_API_DEP_VERSION == env.API_SNAPSHOT_VERSION) {
                                 dir('faces') {
-                                    sh '''#!/bin/bash -ex
+                                    sh '#!/bin/bash -ex\n' + GH_INSTALL + '''
                                         gh pr create --base "${API_BRANCH}" --head "${API_RELEASE_BRANCH}" \\
                                             --title "Faces API ${RESOLVED_API_VERSION} has been released" \\
                                             --body "${BUILD_URL}"
