@@ -724,8 +724,7 @@ spec:
                             // next snapshot, and draft+publish a GitHub release at the just-pushed tag
                             // with auto-generated notes prepended by a one-line summary, the Maven Central
                             // link, and a link to the closed milestone. Best-effort on milestones — a
-                            // missing or pre-existing milestone must not fail this stage. --latest=false
-                            // because patches may be released across multiple branches in any order.
+                            // missing or pre-existing milestone must not fail this stage.
                             sh '#!/bin/bash -ex\n' + GH_INSTALL + '''
                                 NEXT_MILESTONE="${NEXT_VERSION%-SNAPSHOT}"
                                 REPO_SLUG=$(gh repo view --json nameWithOwner --jq .nameWithOwner)
@@ -773,7 +772,7 @@ spec:
                                 gh release create "${RELEASE_TAG}" --target "${IMPL_BRANCH}" \\
                                     --title "${RELEASE_VERSION}" \\
                                     --notes-file release-notes.md \\
-                                    --latest=false
+                                    --latest=true
                             '''
                             if (env.SHOULD_BUILD_API == 'true' && env.IMPL_API_DEP_VERSION == env.API_SNAPSHOT_VERSION) {
                                 dir('faces') {
