@@ -224,11 +224,12 @@ Finally create a Facelets file `/hello.xhtml` as below:
 
 Start the server and open it by `http://localhost:8080/contextname/hello.xhtml`.
 
-## Activating CDI in Jakarta Faces 4.1
+## Activating CDI in Jakarta Faces
 
-CDI is activated by default in Jakarta Faces 4.1 and can´t be deactivated.  
-It´s not anymore required to add `@FacesConfig` to a CDI managed bean to accomplish this.
-As of Jakarta Faces 4.0 `@FacesConfig` still removes the need to explicitly add a `FacesServlet` entry to `web.xml`.
+CDI is activated by default since Jakarta Faces 4.0 and can't be deactivated.
+Since Jakarta Faces 4.0, it's no longer required to add `@FacesConfig` to a CDI managed bean to activate CDI in Jakarta Faces.
+The `@FacesConfig` does, however, still remove the need to explicitly add a `FacesServlet` entry to `web.xml`.
+If you already have a `FacesServlet` entry in `web.xml`, then the `@FacesConfig` is not needed anywhere.
 
 ## Building and Contributing
 
