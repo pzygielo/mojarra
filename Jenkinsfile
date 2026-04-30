@@ -594,14 +594,38 @@ spec:
         stage('Deploy to Maven Central') {
             when { expression { return !params.DRY_RUN } }
             steps {
-                withCredentials([file(credentialsId: 'secret-subkeys.asc', variable: 'KEYRING')]) {
+                withCredentials([
+                    file(credentialsId: 'secret-subkeys.asc', variable: 'KEYRING'),
+                    usernamePassword(credentialsId: 'central-portal-token',
+                                     usernameVariable: 'CENTRAL_USER',
+                                     passwordVariable: 'CENTRAL_PASS')
+                ]) {
                     // -Dcentral.autoPublish=true activates the central-release profile (via property
                     // activation in impl/pom.xml and faces/api/pom.xml) AND tells the plugin to publish.
                     // Without this property, `mvn deploy` does not activate the profile and does not
                     // reach Maven Central, so only CI publishes.
                     // With -Papi, api and impl deploy in a single reactor invocation.
+                    //
+                    // Credentials: a per-build settings.xml with only the `central` server entry is
+                    // generated from the `central-portal-token` Jenkins credential, then mvn is
+                    // pointed at it via -s. This overrides any stale `<server id="central">` entry
+                    // in the k8s-mounted settings.xml, so token rotation is a Jenkins-credential
+                    // update (no EF helpdesk ticket). Other stages keep using the mounted
+                    // settings.xml since they don't pass -s.
                     sh '#!/bin/bash -ex\n' + GPG_INIT + '''
+                        cat > "${WORKSPACE}/central-settings.xml" <<EOF
+<settings>
+  <servers>
+    <server>
+      <id>central</id>
+      <username>${CENTRAL_USER}</username>
+      <password>${CENTRAL_PASS}</password>
+    </server>
+  </servers>
+</settings>
+EOF
                         mvn -U -B ${MVN_EXTRA} ${MVN_API_PROFILE} \\
+                            -s "${WORKSPACE}/central-settings.xml" \\
                             -DskipTests -Ddoclint=none \\
                             -Dcentral.autoPublish=true \\
                             -pl impl -am deploy
