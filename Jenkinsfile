@@ -16,9 +16,10 @@
 // jakarta.faces-api dependency version: -SNAPSHOT triggers a joint release, a GA version means
 // impl-only.
 //
-// Maven Central publication is gated by -Dcentral.autoPublish=true (set only by this Jenkinsfile).
-// A bare `mvn deploy -Pcentral-release` from a developer machine stages the bundle in the Portal
-// but does NOT publish.
+// Maven Central publication is gated by the EE4J parent's `-Poss-release` profile (activated only
+// by this Jenkinsfile). It wires central-publishing-maven-plugin (incl. GPG signing, sources and
+// javadoc jars) and sets autoPublish=true. A bare `mvn deploy` from a developer machine does NOT
+// activate this profile and does NOT reach Maven Central.
 //
 
 // JDK install root layout on Eclipse CI: /opt/tools/java/<distro>/jdk-<N>/latest. The distro
@@ -595,15 +596,14 @@ spec:
             when { expression { return !params.DRY_RUN } }
             steps {
                 withCredentials([file(credentialsId: 'secret-subkeys.asc', variable: 'KEYRING')]) {
-                    // -Dcentral.autoPublish=true activates the central-release profile (via property
-                    // activation in impl/pom.xml and faces/api/pom.xml) AND tells the plugin to publish.
-                    // Without this property, `mvn deploy` does not activate the profile and does not
-                    // reach Maven Central, so only CI publishes.
+                    // -Poss-release activates the EE4J parent's release profile, which wires
+                    // central-publishing-maven-plugin (Sonatype Portal), GPG signing, and the
+                    // sources/javadoc jars Maven Central requires. Without this profile, `mvn deploy`
+                    // does not reach Maven Central, so only CI publishes.
                     // With -Papi, api and impl deploy in a single reactor invocation.
                     sh '#!/bin/bash -ex\n' + GPG_INIT + '''
-                        mvn -U -B ${MVN_EXTRA} ${MVN_API_PROFILE} \\
+                        mvn -U -B ${MVN_EXTRA} ${MVN_API_PROFILE} -Poss-release \\
                             -DskipTests -Ddoclint=none \\
-                            -Dcentral.autoPublish=true \\
                             -pl impl -am deploy
                     '''
                 }
