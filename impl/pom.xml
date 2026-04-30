@@ -76,6 +76,7 @@
         <maven.compiler.source>11</maven.compiler.source>
         <maven.compiler.target>11</maven.compiler.target>
         <mojarra.logstrings.version>${project.version}</mojarra.logstrings.version>
+        <central.autoPublish>false</central.autoPublish>
     </properties>
 
    <!-- ###  D E P E N D E N C I E S  ### -->
@@ -570,20 +571,32 @@
     </build>
 
     <profiles>
-    
-        <!-- Maven Central release -->
+
+        <!-- Maven Central release.
+             Activated EITHER by `-Pcentral-release` (manual, e.g. dev staging) OR automatically by
+             `-Dcentral.autoPublish=true` (used by CI). The autoPublish flag inside the plugin config
+             reads the same property, so:
+               * `mvn deploy -Pcentral-release`                     -> stages (autoPublish=false)
+               * `mvn deploy -Dcentral.autoPublish=true`            -> stages AND publishes (CI)
+             A bare `mvn deploy` does not activate the profile and never reaches Maven Central. -->
         <profile>
             <id>central-release</id>
+            <activation>
+                <property>
+                    <name>central.autoPublish</name>
+                    <value>true</value>
+                </property>
+            </activation>
             <build>
                 <plugins>
                     <plugin>
                         <groupId>org.sonatype.central</groupId>
                         <artifactId>central-publishing-maven-plugin</artifactId>
-                        <version>0.9.0</version>
+                        <version>0.10.0</version>
                         <extensions>true</extensions>
                         <configuration>
                             <publishingServerId>central</publishingServerId>
-                            <autoPublish>true</autoPublish>
+                            <autoPublish>${central.autoPublish}</autoPublish>
                         </configuration>
                     </plugin>
                 </plugins>
