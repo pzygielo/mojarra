@@ -196,6 +196,7 @@ spec:
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
         booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: '4.x only. Skip the old-tck JavaTest modules (excluded from the reactor entirely via -pl); cuts nearly 3 hours off the TCK run. No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected by this flag.')
         booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push.')
+        booleanParam(name: 'SKIP_DEPLOY', defaultValue: false, description: 'Skip the Maven Central deploy stage only (still pushes branch/tag and creates the GitHub release). Use for resuming a previous run after Maven Central already published, or for pipeline-debug runs that exercise Publish to GitHub without re-deploying.')
         booleanParam(name: 'TEST_RUN',    defaultValue: false, description: 'Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked). Ignored when DRY_RUN is unchecked, since the run is not TCK-conformant and must never be published.')
     }
 
@@ -612,7 +613,7 @@ spec:
         }
 
         stage('Deploy to Maven Central') {
-            when { expression { return !params.DRY_RUN } }
+            when { expression { return !params.DRY_RUN && !params.SKIP_DEPLOY } }
             steps {
                 withCredentials([file(credentialsId: 'secret-subkeys.asc', variable: 'KEYRING')]) {
                     // -Poss-release activates the EE4J parent's release profile, which wires
