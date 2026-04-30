@@ -595,29 +595,6 @@ spec:
             when { expression { return !params.DRY_RUN } }
             steps {
                 withCredentials([file(credentialsId: 'secret-subkeys.asc', variable: 'KEYRING')]) {
-                    // TEMPORARY DIAGNOSTIC: dump <server> ids and usernames from the mounted
-                    // settings.xml (without revealing passwords) so we can confirm whether the
-                    // m2-secret-dir k8s secret has a `central` server entry and what its username
-                    // looks like. Compare against the Sonatype Portal account at
-                    // https://central.sonatype.com/account#tokens. Remove once 4.0.17 is published.
-                    sh '''#!/bin/bash -e
-                        SETTINGS=/home/jenkins/.m2/settings.xml
-                        echo "[probe] settings.xml: ${SETTINGS}"
-                        if [ -r "${SETTINGS}" ]; then
-                            echo "[probe] <server> ids and usernames (passwords redacted):"
-                            awk '
-                                /<server>/{srv=""; inside=1}
-                                inside{srv=srv $0 ORS}
-                                /<\\/server>/{
-                                    inside=0
-                                    gsub(/<password>[^<]*<\\/password>/, "<password>***REDACTED***</password>", srv)
-                                    print srv
-                                }
-                            ' "${SETTINGS}"
-                        else
-                            echo "[probe] settings.xml not readable"
-                        fi
-                    '''
                     // -Dcentral.autoPublish=true activates the central-release profile (via property
                     // activation in impl/pom.xml and faces/api/pom.xml) AND tells the plugin to publish.
                     // Without this property, `mvn deploy` does not activate the profile and does not
