@@ -711,7 +711,9 @@ spec:
                 // unrelated version on the API source branch.
                 script {
                     if (env.IS_MILESTONE != 'true') {
-                        withCredentials([string(credentialsId: 'github-bot-token', variable: 'GH_TOKEN')]) {
+                        withCredentials([usernamePassword(credentialsId: 'github-bot',
+                                                          usernameVariable: 'GH_USER',
+                                                          passwordVariable: 'GH_TOKEN')]) {
                             sh '#!/bin/bash -ex\n' + GH_INSTALL + '''
                                 gh pr create --base "${IMPL_BRANCH}" --head "${RELEASE_BRANCH}" \\
                                     --title "Mojarra ${RELEASE_VERSION} has been released" \\
