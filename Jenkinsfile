@@ -829,14 +829,14 @@ def requireGaVersion(String paramName, String version, String expectedPrefix) {
 
 // Mirror of the TCK pom's `compute-csp-backport-flags` script (faces/tck/pom.xml, profile
 // glassfish-ci-managed). Returns the `-Dit.test=... -Dfailsafe.failIfNoSpecifiedTests=false`
-// flags when `version` falls in the CSP-backport range (4.0.17+ or 4.1.8+), or "" otherwise.
+// flags when `version` falls in the CSP-backport range (4.0.17+), or "" otherwise.
 def cspBackportItTestFlags(String version) {
     def m = (version =~ /^(\d+)\.(\d+)\.(\d+)$/)
     if (!m.matches()) return ''
     def maj = m[0][1].toInteger()
     def min = m[0][2].toInteger()
     def inc = m[0][3].toInteger()
-    if ((maj == 4 && min == 0 && inc >= 17) || (maj == 4 && min == 1 && inc >= 8)) {
+    if (maj == 4 && min == 0 && inc >= 17) {
         return '-Dit.test=**/*IT.java,!**/Issue2439IT.java,!**/Issue2674IT.java,!**/Issue4331IT.java,!**/Spec1238IT.java,!**/CommandLinkTestsIT.java -Dfailsafe.failIfNoSpecifiedTests=false'
     }
     return ''
