@@ -1082,35 +1082,52 @@ public class Util {
         // If needed, cache this after initialization of Faces
         Object context = externalContext.getContext();
         if (context instanceof ServletContext) {
-            return getFacesServletMappings((ServletContext) context).stream()
-                    .filter(mapping -> mapping.contains("*"))
-                    .map(mapping -> new HttpServletMapping() {
+            HttpServletMapping pathMapping = null;
 
-                        @Override
-                        public String getServletName() {
-                            return "";
-                        }
+            for (String mapping : getFacesServletMappings((ServletContext) context)) {
+                if (!mapping.contains("*")) {
+                    continue;
+                }
 
-                        @Override
-                        public String getPattern() {
-                            return mapping;
-                        }
+                HttpServletMapping wildcardMapping = toWildcardMapping(mapping);
+                if (wildcardMapping.getMappingMatch() == MappingMatch.EXTENSION) {
+                    return wildcardMapping;
+                }
 
-                        @Override
-                        public String getMatchValue() {
-                            return null;
-                        }
+                if (pathMapping == null) {
+                    pathMapping = wildcardMapping;
+                }
+            }
 
-                        @Override
-                        public MappingMatch getMappingMatch() {
-                            return isPrefixMapped(mapping)? MappingMatch.PATH : MappingMatch.EXTENSION;
-                        }
-                    })
-                    .findFirst()
-                    .orElse(null);
+            return pathMapping;
         }
 
         return null;
+    }
+
+    private static HttpServletMapping toWildcardMapping(String mapping) {
+        return new HttpServletMapping() {
+
+            @Override
+            public String getServletName() {
+                return "";
+            }
+
+            @Override
+            public String getPattern() {
+                return mapping;
+            }
+
+            @Override
+            public String getMatchValue() {
+                return null;
+            }
+
+            @Override
+            public MappingMatch getMappingMatch() {
+                return isPrefixMapped(mapping) ? MappingMatch.PATH : MappingMatch.EXTENSION;
+            }
+        };
     }
 
     /**
