@@ -49,15 +49,18 @@ def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 //   tckJdk          : major JDK version used to run the TCK. Differs from jdk when the GlassFish
 //                     container needs a newer JDK than the spec.
 //   facesVersion    : -Dfaces.version passed to the TCK build.
-//   tckVersion      : Faces TCK release version.
+//   tckVersion      : Faces TCK version. A released version (e.g. "4.0.3") is downloaded as a zip
+//                     from download.eclipse.org/jakartaee/faces/<line>/. A -SNAPSHOT value (e.g.
+//                     "5.0.0-SNAPSHOT") instead builds the TCK from the faces submodule's tck/
+//                     directly — used while a release line's TCK has not yet shipped.
 //   gfVersion       : GlassFish Maven coordinate version used by the TCK.
 //   seleniumEnabled : whether the BaseITNG (Selenium/Chrome) tests run. The agent pod ships
 //                     current Chrome; set false for branches whose TCK pins a CDP major outside
 //                     Selenium's fudge range (e.g. 4.0 pins CDP v108).
 def BRANCH_CONFIG = [
-    '4.0': [ implBranch: '4.0',    apiBranch: null,  jdk: '11', tckJdk: '11', facesVersion: '4.0.1', tckVersion: '4.0.3', gfVersion: '7.0.25'  , seleniumEnabled: false ],
-    '4.1': [ implBranch: '4.1',    apiBranch: null,  jdk: '17', tckJdk: '21', facesVersion: '4.1.0', tckVersion: '4.1.0', gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
-    '5.0': [ implBranch: 'master', apiBranch: '5.0', jdk: '17', tckJdk: '21', facesVersion: '5.0.0', tckVersion: '5.0.0', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
+    '4.0': [ implBranch: '4.0',    apiBranch: null,  jdk: '11', tckJdk: '11', facesVersion: '4.0.1', tckVersion: '4.0.3',          gfVersion: '7.0.25'  , seleniumEnabled: false ],
+    '4.1': [ implBranch: '4.1',    apiBranch: null,  jdk: '17', tckJdk: '21', facesVersion: '4.1.0', tckVersion: '4.1.0',          gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
+    '5.0': [ implBranch: 'master', apiBranch: '5.0', jdk: '17', tckJdk: '21', facesVersion: '5.0.0', tckVersion: '5.0.0-SNAPSHOT', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent. Required wherever the build
@@ -200,7 +203,7 @@ spec:
         choice(name: 'TCK_JDK',         choices: JDK_VERSION_CHOICES,
                description: 'Leave blank to auto-infer from RELEASE_LINE (11 for 4.0, 21 for 4.1 and 5.0). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
         string(name: 'TCK_VERSION',     defaultValue: '',
-               description: 'Leave blank to auto-infer from RELEASE_LINE.')
+               description: 'Leave blank to auto-infer from RELEASE_LINE. A released value (e.g. 4.0.3) downloads the published TCK zip from download.eclipse.org; a -SNAPSHOT value (e.g. 5.0.0-SNAPSHOT) builds the TCK from the faces submodule\\'s tck/ instead.')
         string(name: 'GF_VERSION',      defaultValue: '',
                description: 'Leave blank to auto-infer from RELEASE_LINE. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
         string(name: 'GF_BUNDLE_URL',   defaultValue: '',
@@ -495,23 +498,38 @@ spec:
                     export JAVA_HOME="${TCK_JAVA_HOME}"
                     export PATH="${JAVA_HOME}/bin:${PATH}"
 
-                    rm -rf "faces-tck-${RESOLVED_TCK_VERSION}"
-                    mkdir -p download
-                    TCK_BUNDLE_NAME="jakarta-faces-tck-${RESOLVED_TCK_VERSION}"
-                    TCK_BUNDLE_DIR="faces-tck-${RESOLVED_TCK_VERSION}"
-                    TCK_URL="https://download.eclipse.org/jakartaee/faces/${RELEASE_LINE}/${TCK_BUNDLE_NAME}.zip"
+                    if [[ "${RESOLVED_TCK_VERSION}" == *-SNAPSHOT ]]; then
+                        # -SNAPSHOT: build the TCK directly from the faces submodule (already checked
+                        # out at faces/) instead of downloading a not-yet-published zip. Used while a
+                        # release line's TCK has not yet shipped. The submodule's tck/ runs standalone
+                        # (its parent is the faces repo top-level pom, which we don't need installed).
+                        if [ ! -d faces/tck ]; then
+                            echo "Cannot run -SNAPSHOT TCK: faces submodule (with tck/) is not checked out." >&2
+                            exit 1
+                        fi
+                        TCK_BUNDLE_DIR="faces"
+                        TCK_SOURCE="faces submodule @ $(cd faces && git rev-parse --short HEAD)"
+                    else
+                        # Released TCK: download the published zip from download.eclipse.org.
+                        rm -rf "faces-tck-${RESOLVED_TCK_VERSION}"
+                        mkdir -p download
+                        TCK_BUNDLE_NAME="jakarta-faces-tck-${RESOLVED_TCK_VERSION}"
+                        TCK_BUNDLE_DIR="faces-tck-${RESOLVED_TCK_VERSION}"
+                        TCK_URL="https://download.eclipse.org/jakartaee/faces/${RELEASE_LINE}/${TCK_BUNDLE_NAME}.zip"
 
-                    wget -q "${TCK_URL}" -O "download/${TCK_BUNDLE_NAME}.zip"
-                    unzip -q -o "download/${TCK_BUNDLE_NAME}.zip"
+                        wget -q "${TCK_URL}" -O "download/${TCK_BUNDLE_NAME}.zip"
+                        unzip -q -o "download/${TCK_BUNDLE_NAME}.zip"
+                        TCK_SOURCE="${TCK_URL} (sha256 $(sha256sum "download/${TCK_BUNDLE_NAME}.zip" | awk '{print $1}'))"
 
-                    # Workaround for an upstream TCK packaging typo: tck/faces23/converter/pom.xml
-                    # declares <finalName>test-faces23-ajax</finalName>, colliding with the ajax
-                    # module's deploy and breaking Issue4070IT. Drop once a fixed TCK zip ships and
-                    # BRANCH_CONFIG.tckVersion is bumped past it.
-                    CONVERTER_POM="${TCK_BUNDLE_DIR}/tck/faces23/converter/pom.xml"
-                    if [ -f "${CONVERTER_POM}" ] && grep -q "<finalName>test-faces23-ajax</finalName>" "${CONVERTER_POM}"; then
-                        sed -i.bak 's|<finalName>test-faces23-ajax</finalName>|<finalName>test-faces23-converter</finalName>|' "${CONVERTER_POM}"
-                        echo "[tck-patch] fixed finalName typo in ${CONVERTER_POM}"
+                        # Workaround for an upstream TCK packaging typo: tck/faces23/converter/pom.xml
+                        # declares <finalName>test-faces23-ajax</finalName>, colliding with the ajax
+                        # module's deploy and breaking Issue4070IT. Drop once a fixed TCK zip ships and
+                        # BRANCH_CONFIG.tckVersion is bumped past it.
+                        CONVERTER_POM="${TCK_BUNDLE_DIR}/tck/faces23/converter/pom.xml"
+                        if [ -f "${CONVERTER_POM}" ] && grep -q "<finalName>test-faces23-ajax</finalName>" "${CONVERTER_POM}"; then
+                            sed -i.bak 's|<finalName>test-faces23-ajax</finalName>|<finalName>test-faces23-converter</finalName>|' "${CONVERTER_POM}"
+                            echo "[tck-patch] fixed finalName typo in ${CONVERTER_POM}"
+                        fi
                     fi
 
                     if [ -n "${GF_BUNDLE_URL}" ]; then
