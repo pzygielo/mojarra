@@ -404,16 +404,7 @@ spec:
                     currentBuild.description = "${params.RELEASE_LINE} → ${env.RELEASE_VERSION}" +
                         ((env.SHOULD_BUILD_API == 'true') ? " + API ${env.RESOLVED_API_VERSION}" : ' (impl-only)') +
                         " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${skipOldTckLabel}${testRunLabel}${milestoneLabel}${dryRunLabel})"
-                    if (env.IS_MILESTONE == 'true') {
-                        echo "Snapshot: ${env.SNAPSHOT_VERSION} | Milestone: ${env.RELEASE_VERSION} (snapshot left untouched)"
-                    } else {
-                        echo "Snapshot: ${env.SNAPSHOT_VERSION} | Release: ${env.RELEASE_VERSION} | Next: ${env.NEXT_VERSION}"
-                    }
-                    if (env.SHOULD_BUILD_API == 'true') {
-                        echo "Releasing impl AND API in the same reactor (jakarta.faces-api ${env.RESOLVED_API_VERSION})."
-                    } else if (cfg.apiBranch != null) {
-                        echo "Impl-only release: impl/pom.xml's jakarta.faces-api dep is a GA version, so the API will not be rebuilt."
-                    }
+                    echo renderBanner(buildBannerLines(params, env, cfg))
                 }
             }
         }
@@ -850,6 +841,43 @@ def cspBackportItTestFlags(String version) {
         return '-Dit.test=**/*IT.java,!**/Issue2439IT.java,!**/Issue2674IT.java,!**/Issue4331IT.java,!**/Spec1238IT.java,!**/CommandLinkTestsIT.java -Dfailsafe.failIfNoSpecifiedTests=false'
     }
     return ''
+}
+
+// Compose the human-readable banner lines printed at the end of the Prepare stage. Always-on lines
+// describe the artifacts being released and the build/test environment; conditional lines call out
+// active toggles (DRY_RUN, TEST_RUN, SKIP_OLD_TCK, SKIP_DEPLOY, RUN_TCK off).
+def buildBannerLines(params, env, cfg) {
+    def lines = []
+    if (env.IS_MILESTONE == 'true') {
+        lines << "Mojarra ${env.RELEASE_VERSION} milestone (snapshot ${env.SNAPSHOT_VERSION} left untouched)"
+    } else {
+        lines << "Mojarra ${env.RELEASE_VERSION} release (snapshot ${env.SNAPSHOT_VERSION}, next ${env.NEXT_VERSION})"
+    }
+    if (env.SHOULD_BUILD_API == 'true') {
+        lines << "+ jakarta.faces-api ${env.RESOLVED_API_VERSION} (released alongside in same reactor)"
+    } else if (cfg.apiBranch != null) {
+        lines << "(impl-only: jakarta.faces-api dep is a GA version, API will not be rebuilt)"
+    }
+    def jdkLabel = (env.RESOLVED_JDK == env.RESOLVED_TCK_JDK) \
+        ? "JDK${env.RESOLVED_JDK}" \
+        : "JDK${env.RESOLVED_JDK} (build) / JDK${env.RESOLVED_TCK_JDK} (TCK)"
+    lines << "${jdkLabel}, GlassFish ${env.RESOLVED_GF_VERSION}" + (params.RUN_TCK ? ", Faces TCK ${env.RESOLVED_TCK_VERSION}" : '')
+    if (!params.RUN_TCK)    lines << "- RUN_TCK off: TCK skipped entirely"
+    if (params.SKIP_OLD_TCK && params.RELEASE_LINE.startsWith('4.')) lines << "- SKIP_OLD_TCK: old-tck JavaTest modules excluded from reactor"
+    if (params.TEST_RUN)    lines << "- TEST_RUN: smoke-test subset only (NOT TCK-conformant)"
+    if (params.DRY_RUN)     lines << "- DRY_RUN: skips Maven Central deploy and GitHub push"
+    if (params.SKIP_DEPLOY) lines << "- SKIP_DEPLOY: skips deploy but still pushes branch/tag and creates GitHub release"
+    return lines
+}
+
+// Render banner lines into a multi-line string with an ASCII border, padded to the longest line.
+def renderBanner(List<String> lines) {
+    def width = lines.collect { it.length() }.max()
+    def border = '*' * (width + 4)
+    def out = new StringBuilder('\n').append(border).append('\n')
+    lines.each { out.append("* ").append(it.padRight(width)).append(" *\n") }
+    out.append(border)
+    return out.toString()
 }
 
 // Read impl/pom.xml's jakarta.faces:jakarta.faces-api dependency version literal. Returns "" if
