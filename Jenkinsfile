@@ -45,10 +45,12 @@ def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 //   implBranch      : mojarra git branch holding the impl source for this release line.
 //   apiBranch       : faces-repo branch for the standalone jakarta.faces-api jar (null when no
 //                     separate API artifact exists for this release line). Must match .gitmodules.
+//                     The jakarta.faces-api version itself is not declared here — it's read from
+//                     impl/pom.xml's dependency at pipeline runtime, so the TCK always tests
+//                     against exactly the API version the impl was built against.
 //   jdk             : major JDK version used to build the impl (per Faces spec).
 //   tckJdk          : major JDK version used to run the TCK. Differs from jdk when the GlassFish
 //                     container needs a newer JDK than the spec.
-//   facesVersion    : -Dfaces.version passed to the TCK build.
 //   tckVersion      : Faces TCK version. A released version (e.g. "4.0.3") is downloaded as a zip
 //                     from download.eclipse.org/jakartaee/faces/<line>/. A -SNAPSHOT value (e.g.
 //                     "5.0.0-SNAPSHOT") instead builds the TCK from the faces submodule's tck/
@@ -58,9 +60,9 @@ def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 //                     current Chrome; set false for branches whose TCK pins a CDP major outside
 //                     Selenium's fudge range (e.g. 4.0 pins CDP v108).
 def BRANCH_CONFIG = [
-    '4.0': [ implBranch: '4.0',    apiBranch: null,  jdk: '11', tckJdk: '11', facesVersion: '4.0.1', tckVersion: '4.0.3',          gfVersion: '7.0.25'  , seleniumEnabled: false ],
-    '4.1': [ implBranch: '4.1',    apiBranch: null,  jdk: '17', tckJdk: '21', facesVersion: '4.1.0', tckVersion: '4.1.0',          gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
-    '5.0': [ implBranch: 'master', apiBranch: '5.0', jdk: '17', tckJdk: '21', facesVersion: '5.0.0', tckVersion: '5.0.0-SNAPSHOT', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
+    '4.0': [ implBranch: '4.0',    apiBranch: null,  jdk: '11', tckJdk: '11', tckVersion: '4.0.3',          gfVersion: '7.0.25'  , seleniumEnabled: false ],
+    '4.1': [ implBranch: '4.1',    apiBranch: null,  jdk: '17', tckJdk: '21', tckVersion: '4.1.0',          gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
+    '5.0': [ implBranch: 'master', apiBranch: '5.0', jdk: '17', tckJdk: '21', tckVersion: '5.0.0-SNAPSHOT', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent. Required wherever the build
@@ -131,7 +133,6 @@ pipeline {
     // mounts) is preserved.
     agent {
         kubernetes {
-            label 'mojarra-release-pod'
             defaultContainer 'jnlp-with-chrome'
             yaml """
 apiVersion: v1
@@ -251,7 +252,6 @@ spec:
                     env.RESOLVED_TCK_VERSION = params.TCK_VERSION?.trim() ?: cfg.tckVersion
                     env.RESOLVED_GF_VERSION  = params.GF_VERSION?.trim()  ?: cfg.gfVersion
                     env.SELENIUM_ENABLED     = cfg.seleniumEnabled ? 'true' : 'false'
-                    env.FACES_VERSION        = cfg.facesVersion
                     env.RELEASE_LINE         = params.RELEASE_LINE
                     env.IMPL_BRANCH          = cfg.implBranch
                     env.API_BRANCH           = cfg.apiBranch ?: ''
@@ -350,20 +350,18 @@ spec:
                         ? "-Dit.test='**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java' -Dfailsafe.failIfNoSpecifiedTests=false -Drun.test='com/sun/ts/tests/jsf/api/jakarta_faces/application/facesmessage'" \
                         : ''
 
-                    // Auto-infer SHOULD_BUILD_API from impl/pom.xml's jakarta.faces-api dep version: a
-                    // -SNAPSHOT dep means the API is unreleased and must be released alongside;
-                    // anything else is a released version on Maven Central, so this is an impl-only
-                    // release. Skipped when no separate API artifact exists (apiBranch == null).
-                    if (cfg.apiBranch != null) {
-                        def apiDepVersion = readImplApiDepVersion()
-                        if (apiDepVersion == '') {
-                            error "impl/pom.xml does not declare a jakarta.faces-api dependency. Cannot determine whether to release the API."
-                        }
-                        env.IMPL_API_DEP_VERSION = apiDepVersion
-                        env.SHOULD_BUILD_API = apiDepVersion.endsWith('-SNAPSHOT') ? 'true' : 'false'
-                    } else {
-                        env.SHOULD_BUILD_API = 'false'
+                    // Read the jakarta.faces-api version declared in impl/pom.xml. This is both:
+                    //   - the version the TCK is run against (-Dfaces.version), so the TCK always
+                    //     tests the impl against exactly the API version it was compiled with;
+                    //   - the input to SHOULD_BUILD_API on release lines that co-release the API:
+                    //     a -SNAPSHOT dep means the API is unreleased and must be built alongside,
+                    //     anything else means it's already on Maven Central (impl-only release).
+                    def apiDepVersion = readImplApiDepVersion()
+                    if (apiDepVersion == '') {
+                        error "impl/pom.xml does not declare a jakarta.faces-api dependency."
                     }
+                    env.IMPL_API_DEP_VERSION = apiDepVersion
+                    env.SHOULD_BUILD_API = (cfg.apiBranch != null && apiDepVersion.endsWith('-SNAPSHOT')) ? 'true' : 'false'
                     env.MVN_API_PROFILE = (env.SHOULD_BUILD_API == 'true') ? '-Papi' : ''
 
                     // Resolve API_RELEASE_VERSION from faces/api/pom.xml when releasing the API.
@@ -549,7 +547,7 @@ spec:
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
                         -Dmojarra.version="${RELEASE_VERSION}" \\
-                        -Dfaces.version="${FACES_VERSION}" \\
+                        -Dfaces.version="${IMPL_API_DEP_VERSION}" \\
                         ${TCK_IT_TEST_FLAGS} \\
                         ${TEST_RUN_FLAGS} \\
                         | tee "${WORKSPACE}/run.log"
