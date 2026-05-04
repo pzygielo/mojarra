@@ -872,10 +872,15 @@ def buildBannerLines(params, env, cfg) {
 
 // Render banner lines into a multi-line string with an ASCII border, padded to the longest line.
 def renderBanner(List<String> lines) {
-    def width = lines.collect { it.length() }.max()
+    int width = 0
+    for (line in lines) {
+        if (line.length() > width) width = line.length()
+    }
     def border = '*' * (width + 4)
     def out = new StringBuilder('\n').append(border).append('\n')
-    lines.each { out.append("* ").append(it.padRight(width)).append(" *\n") }
+    for (line in lines) {
+        out.append("* ").append(line.padRight(width)).append(" *\n")
+    }
     out.append(border)
     return out.toString()
 }
