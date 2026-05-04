@@ -203,7 +203,7 @@ spec:
         choice(name: 'TCK_JDK',         choices: JDK_VERSION_CHOICES,
                description: 'Leave blank to auto-infer from RELEASE_LINE (11 for 4.0, 21 for 4.1 and 5.0). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
         string(name: 'TCK_VERSION',     defaultValue: '',
-               description: 'Leave blank to auto-infer from RELEASE_LINE. A released value (e.g. 4.0.3) downloads the published TCK zip from download.eclipse.org; a -SNAPSHOT value (e.g. 5.0.0-SNAPSHOT) builds the TCK from the faces submodule\\'s tck/ instead.')
+               description: 'Leave blank to auto-infer from RELEASE_LINE. A released value (e.g. 4.0.3) downloads the published TCK zip from download.eclipse.org; a -SNAPSHOT value (e.g. 5.0.0-SNAPSHOT) builds the TCK from the faces/tck submodule directory instead.')
         string(name: 'GF_VERSION',      defaultValue: '',
                description: 'Leave blank to auto-infer from RELEASE_LINE. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
         string(name: 'GF_BUNDLE_URL',   defaultValue: '',
