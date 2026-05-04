@@ -208,10 +208,10 @@ spec:
         string(name: 'API_RELEASE_VERSION', defaultValue: '',
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release) or when MILESTONE_VERSION is set.')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
-        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: '4.x only. Skip the old-tck JavaTest modules (excluded from the reactor entirely via -pl); cuts nearly 3 hours off the TCK run. No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected by this flag.')
+        booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: 'Requires RUN_TCK. 4.x only. Skip the old-tck JavaTest modules (excluded from the reactor entirely via -pl); cuts nearly 3 hours off the TCK run. No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected by this flag.')
+        booleanParam(name: 'TEST_RUN',    defaultValue: false, description: 'Requires RUN_TCK and DRY_RUN. Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked). Hard-gated on DRY_RUN since the run is not TCK-conformant and must never be published.')
         booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push.')
-        booleanParam(name: 'TEST_RUN',    defaultValue: false, description: 'Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked). Ignored when DRY_RUN is unchecked, since the run is not TCK-conformant and must never be published.')
-        booleanParam(name: 'SKIP_DEPLOY', defaultValue: false, description: 'Skip the Maven Central deploy stage only (still pushes branch/tag and creates the GitHub release). Use for resuming a previous run after Maven Central already published, or for pipeline-debug runs that exercise Publish to GitHub without re-deploying.')
+        booleanParam(name: 'SKIP_DEPLOY', defaultValue: false, description: 'Requires DRY_RUN unchecked. Skip the Maven Central deploy stage only (still pushes branch/tag and creates the GitHub release). Use for resuming a previous run after Maven Central already published, or for pipeline-debug runs that exercise Publish to GitHub without re-deploying.')
     }
 
     options {
@@ -236,6 +236,12 @@ spec:
                 script {
                     def cfg = BRANCH_CONFIG[params.RELEASE_LINE]
                     if (cfg == null) error "Unknown RELEASE_LINE: ${params.RELEASE_LINE}"
+
+                    // Reject inert checkbox combinations up front rather than silently ignoring them.
+                    if (params.SKIP_OLD_TCK && !params.RUN_TCK) error "SKIP_OLD_TCK requires RUN_TCK."
+                    if (params.TEST_RUN     && !params.RUN_TCK) error "TEST_RUN requires RUN_TCK."
+                    if (params.TEST_RUN     && !params.DRY_RUN) error "TEST_RUN requires DRY_RUN (filtered run is not TCK-conformant and must never be published)."
+                    if (params.SKIP_DEPLOY  &&  params.DRY_RUN) error "SKIP_DEPLOY requires DRY_RUN unchecked (DRY_RUN already skips deploy)."
 
                     env.RESOLVED_JDK         = params.JDK?.trim()         ?: cfg.jdk
                     env.RESOLVED_TCK_JDK     = params.TCK_JDK?.trim()     ?: cfg.tckJdk
