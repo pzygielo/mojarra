@@ -895,25 +895,18 @@ def renderBanner(List<String> lines) {
     return out.toString()
 }
 
-// Read impl/pom.xml's jakarta.faces:jakarta.faces-api dependency version literal. Returns "" if
-// the dep is not declared or if its <version> is absent (e.g. managed via dependencyManagement),
-// letting the caller emit a clear error. Uses awk rather than readMavenPom / XmlSlurper because
-// the Jenkins instance has neither pipeline-utility-steps installed nor XmlSlurper approved by
-// script-security.
+// Resolve the jakarta.faces:jakarta.faces-api version that impl/pom.xml effectively depends on,
+// by asking Maven via dependency:tree. Using mvn rather than parsing impl/pom.xml directly
+// handles 4.x where the version lives in a parent pom's dependencyManagement (the literal
+// <version> child is absent on impl/pom.xml itself). Invoked WITHOUT -Papi so the api
+// submodule's local -SNAPSHOT (5.0+) cannot override the literal version impl/pom.xml pins.
 def readImplApiDepVersion() {
     return sh(returnStdout: true, script: '''#!/bin/bash -e
-        awk '
-            /<dependency>/ { in_dep=1; block="" }
-            in_dep { block = block "\\n" $0 }
-            /<\\/dependency>/ {
-                if (block ~ /<groupId>jakarta\\.faces<\\/groupId>/ && block ~ /<artifactId>jakarta\\.faces-api<\\/artifactId>/) {
-                    if (match(block, /<version>[^<]+<\\/version>/)) {
-                        print substr(block, RSTART+9, RLENGTH-19)
-                    }
-                    exit
-                }
-                in_dep=0
-            }
-        ' impl/pom.xml
+        OUT=$(mktemp)
+        trap 'rm -f "$OUT"' EXIT
+        mvn -pl impl -B -q dependency:tree \\
+            -Dincludes=jakarta.faces:jakarta.faces-api \\
+            -DoutputFile="$OUT" -DoutputType=text >/dev/null
+        grep -oE 'jakarta\\.faces:jakarta\\.faces-api:jar:[^:]+' "$OUT" | head -1 | awk -F: '{print $4}'
     ''').trim()
 }
