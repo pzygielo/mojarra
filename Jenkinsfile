@@ -45,9 +45,13 @@ def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 //   implBranch      : mojarra git branch holding the impl source for this release line.
 //   apiBranch       : faces-repo branch for the standalone jakarta.faces-api jar (null when no
 //                     separate API artifact exists for this release line). Must match .gitmodules.
-//                     The jakarta.faces-api version itself is not declared here — it's read from
-//                     impl/pom.xml's dependency at pipeline runtime, so the TCK always tests
-//                     against exactly the API version the impl was built against.
+//                     When non-null, the API version the TCK runs against is read dynamically
+//                     from impl/pom.xml's jakarta.faces-api dep (so the TCK always tests against
+//                     exactly the API version the impl was built against). When null, apiVersion
+//                     below is used instead — 4.x bundles the API spec into the impl jar, so
+//                     impl/pom.xml has no jakarta.faces-api dep to read.
+//   apiVersion      : 4.x only. jakarta.faces-api version the TCK is run against (passed as
+//                     -Dfaces.version). Ignored when apiBranch != null.
 //   jdk             : major JDK version used to build the impl (per Faces spec).
 //   tckJdk          : major JDK version used to run the TCK. Differs from jdk when the GlassFish
 //                     container needs a newer JDK than the spec.
@@ -60,9 +64,9 @@ def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 //                     current Chrome; set false for branches whose TCK pins a CDP major outside
 //                     Selenium's fudge range (e.g. 4.0 pins CDP v108).
 def BRANCH_CONFIG = [
-    '4.0': [ implBranch: '4.0',    apiBranch: null,  jdk: '11', tckJdk: '11', tckVersion: '4.0.3',          gfVersion: '7.0.25'  , seleniumEnabled: false ],
-    '4.1': [ implBranch: '4.1',    apiBranch: null,  jdk: '17', tckJdk: '21', tckVersion: '4.1.0',          gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
-    '5.0': [ implBranch: 'master', apiBranch: '5.0', jdk: '17', tckJdk: '21', tckVersion: '5.0.0-SNAPSHOT', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
+    '4.0': [ implBranch: '4.0',    apiBranch: null,  apiVersion: '4.0.1', jdk: '11', tckJdk: '11', tckVersion: '4.0.3',          gfVersion: '7.0.25'  , seleniumEnabled: false ],
+    '4.1': [ implBranch: '4.1',    apiBranch: null,  apiVersion: '4.1.0', jdk: '17', tckJdk: '21', tckVersion: '4.1.0',          gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
+    '5.0': [ implBranch: 'master', apiBranch: '5.0', apiVersion: null,    jdk: '17', tckJdk: '21', tckVersion: '5.0.0-SNAPSHOT', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent. Required wherever the build
@@ -241,6 +245,12 @@ spec:
                     def cfg = BRANCH_CONFIG[params.RELEASE_LINE]
                     if (cfg == null) error "Unknown RELEASE_LINE: ${params.RELEASE_LINE}"
 
+                    // Enforce the apiBranch/apiVersion XOR invariant so a misconfigured BRANCH_CONFIG
+                    // entry fails fast here rather than producing a confusing error mid-release.
+                    if ((cfg.apiBranch == null) == (cfg.apiVersion == null)) {
+                        error "BRANCH_CONFIG['${params.RELEASE_LINE}'] must set exactly one of apiBranch / apiVersion (apiBranch=${cfg.apiBranch}, apiVersion=${cfg.apiVersion})."
+                    }
+
                     // Reject inert checkbox combinations up front rather than silently ignoring them.
                     if (params.SKIP_OLD_TCK && !params.RUN_TCK) error "SKIP_OLD_TCK requires RUN_TCK."
                     if (params.TEST_RUN     && !params.RUN_TCK) error "TEST_RUN requires RUN_TCK."
@@ -350,18 +360,24 @@ spec:
                         ? "-Dit.test='**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java' -Dfailsafe.failIfNoSpecifiedTests=false -Drun.test='com/sun/ts/tests/jsf/api/jakarta_faces/application/facesmessage'" \
                         : ''
 
-                    // Read the jakarta.faces-api version declared in impl/pom.xml. This is both:
-                    //   - the version the TCK is run against (-Dfaces.version), so the TCK always
-                    //     tests the impl against exactly the API version it was compiled with;
-                    //   - the input to SHOULD_BUILD_API on release lines that co-release the API:
-                    //     a -SNAPSHOT dep means the API is unreleased and must be built alongside,
-                    //     anything else means it's already on Maven Central (impl-only release).
-                    def apiDepVersion = readImplApiDepVersion()
-                    if (apiDepVersion == '') {
-                        error "impl/pom.xml does not declare a jakarta.faces-api dependency."
+                    // Resolve the jakarta.faces-api version the TCK runs against (-Dfaces.version):
+                    //   - 5.0+ (apiBranch != null): read it dynamically from impl/pom.xml's
+                    //     jakarta.faces-api dep, so the TCK tests against exactly the API the
+                    //     impl was built against. A -SNAPSHOT dep also means the API is unreleased
+                    //     and must be co-released; anything else is impl-only (API on Maven Central).
+                    //   - 4.x (apiBranch == null): impl bundles the spec API into its own jar and
+                    //     declares no jakarta.faces-api dep, so use the per-branch cfg.apiVersion.
+                    if (cfg.apiBranch != null) {
+                        def apiDepVersion = readImplApiDepVersion()
+                        if (apiDepVersion == '') {
+                            error "impl/pom.xml does not declare a jakarta.faces-api dependency."
+                        }
+                        env.IMPL_API_DEP_VERSION = apiDepVersion
+                        env.SHOULD_BUILD_API = apiDepVersion.endsWith('-SNAPSHOT') ? 'true' : 'false'
+                    } else {
+                        env.IMPL_API_DEP_VERSION = cfg.apiVersion
+                        env.SHOULD_BUILD_API = 'false'
                     }
-                    env.IMPL_API_DEP_VERSION = apiDepVersion
-                    env.SHOULD_BUILD_API = (cfg.apiBranch != null && apiDepVersion.endsWith('-SNAPSHOT')) ? 'true' : 'false'
                     env.MVN_API_PROFILE = (env.SHOULD_BUILD_API == 'true') ? '-Papi' : ''
 
                     // Resolve API_RELEASE_VERSION from faces/api/pom.xml when releasing the API.
