@@ -357,7 +357,7 @@ spec:
                     //   -Drun.test=...  : antrun config in old-tck/run/pom.xml flips to
                     //                     `ant runclient -Dmultiple.tests=${run.test}` when set.
                     env.TEST_RUN_FLAGS = (params.TEST_RUN && params.DRY_RUN) \
-                        ? "-Dit.test='**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java' -Dfailsafe.failIfNoSpecifiedTests=false -Drun.test='com/sun/ts/tests/jsf/api/jakarta_faces/application/facesmessage'" \
+                        ? "-Dit.test=**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java -Dfailsafe.failIfNoSpecifiedTests=false -Drun.test=com/sun/ts/tests/jsf/api/jakarta_faces/application/facesmessage" \
                         : ''
 
                     // Resolve the jakarta.faces-api version the TCK runs against (-Dfaces.version):
