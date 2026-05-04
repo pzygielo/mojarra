@@ -760,12 +760,16 @@ spec:
                                         -f tag_name="${RELEASE_TAG}" -f target_commitish="${IMPL_BRANCH}" --jq .body)
                                 fi
 
+                                # Drop the noise bullets generated for prior squash-merged release PRs
+                                # (titled "<version> has been released"), which carry no real changelog value.
+                                GENERATED=$(echo "${GENERATED}" | grep -v "has been released" || true)
+
                                 {
-                                    echo "${RELEASE_VERSION} has been released"
+                                    echo "## ${RELEASE_VERSION} has been released"
                                     echo
-                                    echo "Maven Central: https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/${RELEASE_VERSION}/"
+                                    echo "- Maven Central: https://repo1.maven.org/maven2/org/glassfish/jakarta.faces/${RELEASE_VERSION}/"
                                     if [ -n "${MILESTONE_NUMBER}" ]; then
-                                        echo "Milestone: https://github.com/${REPO_SLUG}/milestone/${MILESTONE_NUMBER}?closed=1"
+                                        echo "- Milestone: https://github.com/${REPO_SLUG}/milestone/${MILESTONE_NUMBER}?closed=1"
                                     fi
                                     echo
                                     echo "${GENERATED}"
