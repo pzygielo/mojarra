@@ -881,15 +881,24 @@ def renderBanner(List<String> lines) {
 }
 
 // Read impl/pom.xml's jakarta.faces:jakarta.faces-api dependency version literal. Returns "" if
-// the dep is not declared or if its <version> is null (e.g. managed via dependencyManagement),
-// letting the caller emit a clear error. Uses readMavenPom (pre-approved by Jenkins
-// script-security) instead of XmlSlurper, which would require manual approval.
+// the dep is not declared or if its <version> is absent (e.g. managed via dependencyManagement),
+// letting the caller emit a clear error. Uses awk rather than readMavenPom / XmlSlurper because
+// the Jenkins instance has neither pipeline-utility-steps installed nor XmlSlurper approved by
+// script-security.
 def readImplApiDepVersion() {
-    def pom = readMavenPom(file: 'impl/pom.xml')
-    for (dep in pom.dependencies) {
-        if (dep.groupId == 'jakarta.faces' && dep.artifactId == 'jakarta.faces-api') {
-            return dep.version ?: ''
-        }
-    }
-    return ''
+    return sh(returnStdout: true, script: '''
+        awk '
+            /<dependency>/ { in_dep=1; block="" }
+            in_dep { block = block "\\n" $0 }
+            /<\\/dependency>/ {
+                if (block ~ /<groupId>jakarta\\.faces<\\/groupId>/ && block ~ /<artifactId>jakarta\\.faces-api<\\/artifactId>/) {
+                    if (match(block, /<version>[^<]+<\\/version>/)) {
+                        print substr(block, RSTART+9, RLENGTH-19)
+                    }
+                    exit
+                }
+                in_dep=0
+            }
+        ' impl/pom.xml
+    ''').trim()
 }
