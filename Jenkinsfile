@@ -348,22 +348,16 @@ spec:
                         : ''
 
                     // Auto-infer SHOULD_BUILD_API from impl/pom.xml's jakarta.faces-api dep version: a
-                    // -SNAPSHOT dep means the API is unreleased and must be released alongside; a GA
-                    // version means the API is on Maven Central and this is an impl-only release.
-                    // Skipped when no separate API artifact exists for this branch (apiBranch == null).
+                    // -SNAPSHOT dep means the API is unreleased and must be released alongside;
+                    // anything else is a released version on Maven Central, so this is an impl-only
+                    // release. Skipped when no separate API artifact exists (apiBranch == null).
                     if (cfg.apiBranch != null) {
                         def apiDepVersion = readImplApiDepVersion()
                         if (apiDepVersion == '') {
                             error "impl/pom.xml does not declare a jakarta.faces-api dependency. Cannot determine whether to release the API."
                         }
                         env.IMPL_API_DEP_VERSION = apiDepVersion
-                        if (apiDepVersion.endsWith('-SNAPSHOT')) {
-                            env.SHOULD_BUILD_API = 'true'
-                        } else if (apiDepVersion ==~ /\d+\.\d+\.\d+(\.\d+)*/) {
-                            env.SHOULD_BUILD_API = 'false'
-                        } else {
-                            error "impl/pom.xml's jakarta.faces-api dep version '${apiDepVersion}' is neither a -SNAPSHOT nor a dotted-numeric GA version (e.g. 5.0.0). Update the dep before releasing."
-                        }
+                        env.SHOULD_BUILD_API = apiDepVersion.endsWith('-SNAPSHOT') ? 'true' : 'false'
                     } else {
                         env.SHOULD_BUILD_API = 'false'
                     }
@@ -891,7 +885,7 @@ def renderBanner(List<String> lines) {
 // the Jenkins instance has neither pipeline-utility-steps installed nor XmlSlurper approved by
 // script-security.
 def readImplApiDepVersion() {
-    return sh(returnStdout: true, script: '''
+    return sh(returnStdout: true, script: '''#!/bin/bash -e
         awk '
             /<dependency>/ { in_dep=1; block="" }
             in_dep { block = block "\\n" $0 }
