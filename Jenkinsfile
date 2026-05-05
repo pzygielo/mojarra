@@ -146,16 +146,19 @@ spec:
     - name: jnlp-with-chrome
       image: 'eclipsecbijenkins/basic-ubuntu-chrome:latest'
       tty: true
-      # Run cat under tini as PID 1 so reparented orphans (asadmin client JVMs, surefire/failsafe
-      # helper forks, defunct sh wrappers) get reaped instead of accumulating as zombies. Without
-      # this, a long TCK reactor run hits the pod's cgroup pids.max (2048 on Eclipse Jiro) after
-      # ~17 modules and surefire's next fork fails with "unable to create native thread". -s puts
-      # tini in subreaper mode so it also reaps grandchildren reparented to it.
+      # Run a tiny bash reaper as PID 1 so reparented orphans (asadmin client JVMs,
+      # surefire/failsafe helper forks, defunct sh wrappers) get reaped instead of accumulating as
+      # zombies. Without this, a long TCK reactor run hits the pod's cgroup pids.max (2048 on
+      # Eclipse Jiro) after ~17 modules and surefire's next fork fails with "unable to create
+      # native thread". The basic-ubuntu-chrome image doesn't ship tini, so this is the
+      # zero-dependency equivalent: bash as PID 1 receives SIGCHLD for any reparented child, and
+      # `wait -n` reaps the next exited one each iteration; the sleep keeps the loop alive when
+      # idle. The outer `while :;` ensures the loop survives if `wait -n` returns no-children
+      # (exit 127) early in pod startup before any forks have happened.
       command:
-        - /usr/bin/tini
-        - -s
-        - --
-        - cat
+        - /bin/bash
+        - -c
+        - 'while :; do wait -n 2>/dev/null || sleep 5; done'
       env:
         - name: HOME
           value: /home/jenkins
