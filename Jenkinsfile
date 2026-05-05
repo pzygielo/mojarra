@@ -579,6 +579,48 @@ spec:
                     export JAVA_HOME="${TCK_JAVA_HOME}"
                     export PATH="${JAVA_HOME}/bin:${PATH}"
 
+                    # ---- Diagnostic probes for the "unable to create native thread" investigation.
+                    # Goal: prove or disprove that GlassFish JVMs leak across module boundaries and
+                    # exhaust the pod's pids cgroup. Captures one-shot resource caps + toolchain
+                    # info up front, samples process/thread state every 30s during the reactor, and
+                    # dumps a full thread listing on failure. All output archived as artifacts.
+                    {
+                        echo "=== cgroup pids ==="
+                        cat /sys/fs/cgroup/pids.max         2>/dev/null || true
+                        cat /sys/fs/cgroup/pids/pids.max    2>/dev/null || true
+                        cat /sys/fs/cgroup/pids.current     2>/dev/null || true
+                        cat /sys/fs/cgroup/pids/pids.current 2>/dev/null || true
+                        echo "=== kernel/ulimit ==="
+                        cat /proc/sys/kernel/threads-max 2>/dev/null || true
+                        ulimit -u 2>/dev/null || true
+                        ulimit -a 2>/dev/null || true
+                        echo "=== toolchain ==="
+                        which java
+                        readlink -f "$(which java)"
+                        java -version 2>&1
+                        env | grep -iE 'java|jdk' | sort
+                    } > "${WORKSPACE}/tck-env.log" 2>&1 || true
+
+                    # Periodic snapshot loop. nlwp is the per-process thread count; sorting desc
+                    # surfaces fat JVMs first. We tag each sample with an iso8601 timestamp so it
+                    # can be correlated with the Maven reactor log.
+                    (
+                        while sleep 30; do
+                            echo "=== $(date -Is) ==="
+                            echo -n "pids.current: "
+                            cat /sys/fs/cgroup/pids.current 2>/dev/null \\
+                                || cat /sys/fs/cgroup/pids/pids.current 2>/dev/null \\
+                                || echo "?"
+                            echo "java procs:        $(pgrep -c java 2>/dev/null || echo 0)"
+                            echo "asadmin procs:     $(pgrep -c -f asadmin 2>/dev/null || echo 0)"
+                            echo "glassfish ASMain:  $(pgrep -c -f 'glassfish.*ASMain' 2>/dev/null || echo 0)"
+                            ps -eo pid,ppid,nlwp,rss,etimes,cmd --sort=-nlwp 2>/dev/null | head -25
+                        done
+                    ) > "${WORKSPACE}/tck-procs.log" 2>&1 &
+                    PROBE_PID=$!
+                    # Stop the probe loop on any exit path so it doesn't outlive the step.
+                    trap 'kill ${PROBE_PID} 2>/dev/null || true' EXIT
+
                     if [[ "${RESOLVED_TCK_VERSION}" == *-SNAPSHOT ]]; then
                         # -SNAPSHOT: build the TCK directly from the faces submodule (already checked
                         # out at faces/) instead of downloading a not-yet-published zip. Used while a
@@ -711,7 +753,25 @@ spec:
             }
             post {
                 always {
-                    archiveArtifacts artifacts: 'run.log, summary.txt', allowEmptyArchive: true, fingerprint: true
+                    // Snapshot full thread/process state at TCK exit (pass or fail) so we can
+                    // diff against tck-env.log (start) + tck-procs.log (samples) and confirm
+                    // whether GlassFish JVMs leak across modules. Best-effort — the surrounding
+                    // shell may already be torn down.
+                    sh '''#!/bin/bash
+                        {
+                            echo "=== final $(date -Is) ==="
+                            echo -n "pids.current: "
+                            cat /sys/fs/cgroup/pids.current 2>/dev/null \\
+                                || cat /sys/fs/cgroup/pids/pids.current 2>/dev/null \\
+                                || echo "?"
+                            echo "=== pgrep -af java ==="
+                            pgrep -af java 2>/dev/null || true
+                            echo "=== ps -eLf (all threads) ==="
+                            ps -eLf 2>/dev/null || true
+                        } > "${WORKSPACE}/tck-threads-final.log" 2>&1 || true
+                    '''
+                    archiveArtifacts artifacts: 'run.log, summary.txt, tck-env.log, tck-procs.log, tck-threads-final.log',
+                                     allowEmptyArchive: true, fingerprint: true
                 }
             }
         }
