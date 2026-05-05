@@ -633,6 +633,13 @@ spec:
                         readlink -f "$(which java)"
                         java -version 2>&1
                         env | grep -iE 'java|jdk' | sort
+                        echo "=== chrome / selenium env ==="
+                        google-chrome --version 2>/dev/null || true
+                        which chromedriver 2>/dev/null || true
+                        chromedriver --version 2>/dev/null || true
+                        df -h /dev/shm 2>/dev/null || true
+                        ls -la /dev/shm 2>/dev/null | head -20 || true
+                        ls -la /home/jenkins/agent/caches/selenium 2>/dev/null | head -20 || true
                     } > "${WORKSPACE}/tck-env.log" 2>&1 || true
 
                     # Periodic snapshot loop. nlwp is the per-process thread count; sorting desc
@@ -648,6 +655,10 @@ spec:
                             echo "java procs:        $(pgrep -c java 2>/dev/null || echo 0)"
                             echo "asadmin procs:     $(pgrep -c -f asadmin 2>/dev/null || echo 0)"
                             echo "glassfish ASMain:  $(pgrep -c -f 'glassfish.*ASMain' 2>/dev/null || echo 0)"
+                            echo "chrome procs:      $(pgrep -c chrome 2>/dev/null || echo 0)"
+                            echo "chromedriver:      $(pgrep -c chromedriver 2>/dev/null || echo 0)"
+                            echo "/dev/shm:          $(df -h /dev/shm 2>/dev/null | awk 'NR==2 {print $3"/"$2" ("$5")"}')"
+                            echo "/dev/shm files:    $(ls /dev/shm 2>/dev/null | wc -l)"
                             ps -eo pid,ppid,nlwp,rss,etimes,cmd --sort=-nlwp 2>/dev/null | head -25
                         done
                     ) > "${WORKSPACE}/tck-procs.log" 2>&1 &
@@ -800,6 +811,9 @@ spec:
                                 || echo "?"
                             echo "=== pgrep -af java ==="
                             pgrep -af java 2>/dev/null || true
+                            echo "=== /dev/shm at exit ==="
+                            df -h /dev/shm 2>/dev/null || true
+                            ls -la /dev/shm 2>/dev/null || true
                             echo "=== ps -eLf (all threads) ==="
                             ps -eLf 2>/dev/null || true
                         } > "${WORKSPACE}/tck-threads-final.log" 2>&1 || true
