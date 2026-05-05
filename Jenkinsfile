@@ -417,6 +417,73 @@ spec:
                         " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${skipOldTckLabel}${testRunLabel}${milestoneLabel}${dryRunLabel})"
                     echo renderBanner(buildBannerLines(params, env, cfg))
                 }
+                // Validate every credential the publish path will need, even on DRY_RUN, so a
+                // revoked/expired/misconfigured credential fails the build in minute zero rather
+                // than after a multi-hour TCK run. Runs unconditionally — milestone publishes also
+                // need Maven Central + GitHub push + gh token, so there's no reason to skip.
+                // GPG is not pinged here because Build & install already signs sources/javadoc and
+                // would fail on a bad keyring within minutes.
+                //
+                // Sonatype Central Portal creds live in the mounted ~/.m2/settings.xml as
+                // <server id="central">, with the password possibly encrypted via {...} +
+                // settings-security.xml (see m2-secret-dir layout). help:effective-settings with
+                // showPasswords=true emits the SecDispatcher-decrypted form; xmllint extracts the
+                // central entry. The temp file is mode 600 + trap-deleted so the cleartext
+                // password never survives the step. Stdout is silenced so it never hits the log.
+                sh '''#!/bin/bash -e
+                    EFF=$(mktemp); chmod 600 "${EFF}"
+                    trap 'rm -f "${EFF}"' EXIT
+                    mvn -q -B ${HELP_PLUGIN}:effective-settings -DshowPasswords=true -Doutput="${EFF}" >/dev/null
+                    XP_USER='string(//*[local-name()="server"][*[local-name()="id"]="central"]/*[local-name()="username"])'
+                    XP_PASS='string(//*[local-name()="server"][*[local-name()="id"]="central"]/*[local-name()="password"])'
+                    CENTRAL_USER=$(xmllint --xpath "${XP_USER}" "${EFF}")
+                    CENTRAL_PASS=$(xmllint --xpath "${XP_PASS}" "${EFF}")
+                    if [ -z "${CENTRAL_USER}" ] || [ -z "${CENTRAL_PASS}" ]; then
+                        echo "[cred-check] Sonatype Central Portal: <server id=central> missing in settings.xml" >&2
+                        exit 1
+                    fi
+                    CODE=$(curl -sS -o /dev/null -w '%{http_code}' \\
+                        -u "${CENTRAL_USER}:${CENTRAL_PASS}" \\
+                        https://central.sonatype.com/api/v1/publisher/deployments) || {
+                        echo "[cred-check] Sonatype Central Portal: curl failed (network or DNS issue)" >&2
+                        exit 1
+                    }
+                    case "${CODE}" in
+                        2*)      echo "[cred-check] Sonatype Central Portal: ok (${CODE})" ;;
+                        401|403) echo "[cred-check] Sonatype Central Portal: BAD CREDS (${CODE})" >&2; exit 1 ;;
+                        *)       echo "[cred-check] Sonatype Central Portal: non-2xx ${CODE} (treating as transient outage)" >&2 ;;
+                    esac
+                '''
+                // GitHub SSH push: --dry-run performs the full receive-pack handshake (incl. the
+                // write-permission check on protected refs) but transmits no objects and never
+                // creates the remote ref. Probes both mojarra.git and (when releasing the API)
+                // jakartaee/faces.git, so a missing/revoked write grant on either fails fast.
+                sshagent(credentials: ['github-bot-ssh']) {
+                    sh '#!/bin/bash -e\n' + KNOWN_HOSTS_INIT + '''
+                        git push --dry-run git@github.com:eclipse-ee4j/mojarra.git HEAD:refs/heads/__cred_check__
+                        echo "[cred-check] GitHub SSH push (mojarra): ok"
+                    '''
+                    script {
+                        if (env.SHOULD_BUILD_API == 'true') {
+                            dir('faces') {
+                                sh '''#!/bin/bash -e
+                                    git push --dry-run git@github.com:jakartaee/faces.git HEAD:refs/heads/__cred_check__
+                                    echo "[cred-check] GitHub SSH push (faces): ok"
+                                '''
+                            }
+                        }
+                    }
+                }
+                // GitHub bot token: gh auth status calls /user under the hood, so it fails on an
+                // expired/revoked token. Same withCredentials shape Publish to GitHub uses later.
+                withCredentials([usernamePassword(credentialsId: 'github-bot',
+                                                  usernameVariable: 'GH_USER',
+                                                  passwordVariable: 'GH_TOKEN')]) {
+                    sh '#!/bin/bash -e\n' + GH_INSTALL + '''
+                        gh auth status
+                        echo "[cred-check] GitHub bot token: ok"
+                    '''
+                }
             }
         }
 
