@@ -173,18 +173,19 @@ spec:
         # line and make CI logs confusing. Empty it for the whole pod.
         - name: JAVA_TOOL_OPTIONS
           value: ""
-      # Sized for the 5.0 release line, which runs the TCK reactor under -T 4 (gf-pool).
-      # Each parallel slot holds one GlassFish (~600MB-1GB) + one forked test JVM + one Chrome
-      # session, so 4 slots want ~12GB and at least 4 cores to avoid CPU oversubscription. 4.x
-      # release lines are configured with threadCount: 1 in BRANCH_CONFIG and underuse this
-      # budget — that's fine, they finish faster anyway from less contention.
+      # Capped at the Eclipse Jiro namespace quota: max 8Gi/2 CPU per container, 8704Mi/2300m
+      # per pod (the rest is consumed by the jnlp sidecar). Going higher would require a
+      # helpdesk request to expand the quota. 5.0 still benefits from -T 4 here even though CPU
+      # oversubscribes 2:1, because the gf-pool slot lifecycle is I/O-bound (GlassFish startup,
+      # WAR upload, browser navigation), not CPU-bound — wall-clock speedup is roughly 2× rather
+      # than the 4× the thread count would suggest.
       resources:
         limits:
-          memory: 16Gi
-          cpu: '4'
+          memory: 8Gi
+          cpu: '2'
         requests:
-          memory: 16Gi
-          cpu: '4'
+          memory: 8Gi
+          cpu: '2'
       volumeMounts:
         - name: jenkins-home
           mountPath: /home/jenkins
