@@ -63,10 +63,15 @@ def JDK_VERSION_CHOICES = [''] + JDK_DISTRO_BY_VERSION.keySet().toList()
 //   seleniumEnabled : whether the BaseITNG (Selenium/Chrome) tests run. The agent pod ships
 //                     current Chrome; set false for branches whose TCK pins a CDP major outside
 //                     Selenium's fudge range (e.g. 4.0 pins CDP v108).
+//   threadCount     : Maven `-T` value for the TCK reactor. Set >1 only for release lines whose
+//                     TCK ships gf-pool (5.0+); 4.x TCKs run a single managed GlassFish per
+//                     module and cannot share it across parallel module builds, so threadCount
+//                     stays at 1 there. The pod's cpu/memory should comfortably accommodate
+//                     this many concurrent GlassFish + test JVM pairs.
 def BRANCH_CONFIG = [
-    '4.0': [ implBranch: '4.0',    apiBranch: null,  apiVersion: '4.0.1', jdk: '11', tckJdk: '11', tckVersion: '4.0.3',          gfVersion: '7.0.25'  , seleniumEnabled: false ],
-    '4.1': [ implBranch: '4.1',    apiBranch: null,  apiVersion: '4.1.0', jdk: '17', tckJdk: '21', tckVersion: '4.1.0',          gfVersion: '8.0.0-M6', seleniumEnabled: true  ],
-    '5.0': [ implBranch: 'master', apiBranch: '5.0', apiVersion: null,    jdk: '17', tckJdk: '21', tckVersion: '5.0.0-SNAPSHOT', gfVersion: '9.0.0-M2', seleniumEnabled: true  ],
+    '4.0': [ implBranch: '4.0',    apiBranch: null,  apiVersion: '4.0.1', jdk: '11', tckJdk: '11', tckVersion: '4.0.3',          gfVersion: '7.0.25'  , seleniumEnabled: false, threadCount: 1 ],
+    '4.1': [ implBranch: '4.1',    apiBranch: null,  apiVersion: '4.1.0', jdk: '17', tckJdk: '21', tckVersion: '4.1.0',          gfVersion: '8.0.0-M6', seleniumEnabled: true , threadCount: 1 ],
+    '5.0': [ implBranch: 'master', apiBranch: '5.0', apiVersion: null,    jdk: '17', tckJdk: '21', tckVersion: '5.0.0-SNAPSHOT', gfVersion: '9.0.0-M2', seleniumEnabled: true , threadCount: 4 ],
 ]
 
 // Reusable shell snippet: GPG keyring import + trust. Idempotent. Required wherever the build
@@ -168,13 +173,18 @@ spec:
         # line and make CI logs confusing. Empty it for the whole pod.
         - name: JAVA_TOOL_OPTIONS
           value: ""
+      # Sized for the 5.0 release line, which runs the TCK reactor under -T 4 (gf-pool).
+      # Each parallel slot holds one GlassFish (~600MB-1GB) + one forked test JVM + one Chrome
+      # session, so 4 slots want ~12GB and at least 4 cores to avoid CPU oversubscription. 4.x
+      # release lines are configured with threadCount: 1 in BRANCH_CONFIG and underuse this
+      # budget — that's fine, they finish faster anyway from less contention.
       resources:
         limits:
-          memory: 8Gi
-          cpu: '2'
+          memory: 16Gi
+          cpu: '4'
         requests:
-          memory: 8Gi
-          cpu: '2'
+          memory: 16Gi
+          cpu: '4'
       volumeMounts:
         - name: jenkins-home
           mountPath: /home/jenkins
@@ -279,6 +289,7 @@ spec:
                     env.RESOLVED_TCK_VERSION = params.TCK_VERSION?.trim() ?: cfg.tckVersion
                     env.RESOLVED_GF_VERSION  = params.GF_VERSION?.trim()  ?: cfg.gfVersion
                     env.SELENIUM_ENABLED     = cfg.seleniumEnabled ? 'true' : 'false'
+                    env.TCK_THREAD_COUNT     = cfg.threadCount.toString()
                     env.RELEASE_LINE         = params.RELEASE_LINE
                     env.IMPL_BRANCH          = cfg.implBranch
                     env.API_BRANCH           = cfg.apiBranch ?: ''
@@ -423,7 +434,9 @@ spec:
                     def jdkLabel = (env.RESOLVED_JDK == env.RESOLVED_TCK_JDK)
                         ? "JDK${env.RESOLVED_JDK}"
                         : "JDK${env.RESOLVED_JDK}/TCK-JDK${env.RESOLVED_TCK_JDK}"
-                    def tckLabel = params.RUN_TCK ? "TCK ${env.RESOLVED_TCK_VERSION}" : "TCK skipped"
+                    def tckLabel = params.RUN_TCK
+                        ? "TCK ${env.RESOLVED_TCK_VERSION}" + (env.TCK_THREAD_COUNT == '1' ? '' : " -T${env.TCK_THREAD_COUNT}")
+                        : "TCK skipped"
                     // old-TCK exists only on 4.x; on 5.0+ the module is gone so the flag is a no-op.
                     def skipOldTckLabel = (params.RELEASE_LINE.startsWith('4.') && params.RUN_TCK && params.SKIP_OLD_TCK) ? ', old-TCK skipped' : ''
                     def testRunLabel = (params.RUN_TCK && params.TEST_RUN && params.DRY_RUN) ? ', test-run' : ''
@@ -716,7 +729,11 @@ spec:
                     # failsafe-summary.xml files are then aggregated below to render summary.txt
                     # for the release archive.
                     cd "${TCK_BUNDLE_DIR}/tck"
-                    mvn ${MVN_EXTRA} clean install \\
+                    # -T ${TCK_THREAD_COUNT}: parallel reactor build. >1 only on release lines whose
+                    # TCK ships gf-pool (5.0+) — set per-line in BRANCH_CONFIG.threadCount. 4.x runs
+                    # at 1 because their TCK starts a single managed GlassFish per module that can't
+                    # be shared across parallel module builds.
+                    mvn ${MVN_EXTRA} -T ${TCK_THREAD_COUNT} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
                         -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
                         -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
@@ -1070,7 +1087,10 @@ def buildBannerLines(params, env, cfg) {
     def jdkLabel = (env.RESOLVED_JDK == env.RESOLVED_TCK_JDK) \
         ? "JDK${env.RESOLVED_JDK}" \
         : "JDK${env.RESOLVED_JDK} (build) / JDK${env.RESOLVED_TCK_JDK} (TCK)"
-    lines << "${jdkLabel}, GlassFish ${env.RESOLVED_GF_VERSION}" + (params.RUN_TCK ? ", Faces TCK ${env.RESOLVED_TCK_VERSION}" : '')
+    def tckBannerLabel = params.RUN_TCK
+        ? ", Faces TCK ${env.RESOLVED_TCK_VERSION}" + (env.TCK_THREAD_COUNT == '1' ? '' : " (-T ${env.TCK_THREAD_COUNT})")
+        : ''
+    lines << "${jdkLabel}, GlassFish ${env.RESOLVED_GF_VERSION}${tckBannerLabel}"
     if (!params.RUN_TCK)    lines << "- RUN_TCK off: TCK skipped entirely"
     if (params.SKIP_OLD_TCK && params.RELEASE_LINE.startsWith('4.')) lines << "- SKIP_OLD_TCK: old-tck JavaTest modules excluded from reactor"
     if (params.TEST_RUN)    lines << "- TEST_RUN: smoke-test subset only (NOT TCK-conformant)"
