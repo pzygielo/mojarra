@@ -737,7 +737,7 @@ spec:
                     mvn ${MVN_EXTRA} -T ${TCK_THREAD_COUNT} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
                         -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
-                        -DskipAssembly=true -Pstaging,glassfish-ci-managed \\
+                        -DskipAssembly=true -Pstaging \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${IMPL_API_DEP_VERSION}" \\
