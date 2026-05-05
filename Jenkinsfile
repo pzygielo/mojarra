@@ -676,7 +676,7 @@ spec:
                             exit 1
                         fi
                         TCK_BUNDLE_DIR="faces"
-                        TCK_SOURCE="faces submodule @ $(cd faces && git rev-parse --short HEAD)"
+                        TCK_SOURCE="faces submodule @ $(cd faces && git rev-parse HEAD) (branch: ${API_BRANCH:-?})"
                     else
                         # Released TCK: download the published zip from download.eclipse.org.
                         rm -rf "faces-tck-${RESOLVED_TCK_VERSION}"
@@ -706,6 +706,11 @@ spec:
                             -DgroupId=org.glassfish.main.distributions \\
                             -DartifactId=glassfish -Dversion="${RESOLVED_GF_VERSION}" -Dpackaging=zip
                     fi
+
+                    # Surface the exact TCK bundle source into run.log so post-run forensics don't
+                    # have to dig through the Jenkins console log to figure out which faces SHA (or
+                    # which downloaded zip's sha256) was actually built against.
+                    echo "[tck-bundle] ${TCK_SOURCE}" | tee -a "${WORKSPACE}/run.log"
 
                     # Failsafe gates on test failures via its own non-zero exit. Per-module
                     # failsafe-summary.xml files are then aggregated below to render summary.txt
@@ -787,8 +792,11 @@ spec:
                         fi
                         echo "Faces TCK ${RESOLVED_TCK_VERSION}"
                         echo "Passed: ${PASSED}  Failed: ${FAILED}  Errors: ${ERRORS}"
-                        echo "TCK download: ${TCK_URL}"
-                        echo "SHA256 TCK : $(sha256sum download/${TCK_BUNDLE_NAME}.zip | awk '{print $1}')"
+                        echo "TCK source : ${TCK_SOURCE}"
+                        if [ -n "${TCK_URL:-}" ] && [ -f "download/${TCK_BUNDLE_NAME}.zip" ]; then
+                            echo "TCK download: ${TCK_URL}"
+                            echo "SHA256 TCK : $(sha256sum download/${TCK_BUNDLE_NAME}.zip | awk '{print $1}')"
+                        fi
                         echo "SHA256 IMPL: $(sha256sum ${TCK_BUNDLE_DIR}/tck/target/glassfish*/glassfish/modules/jakarta.faces.jar | awk '{print $1}')"
                         echo "JDK: $(java -version 2>&1 | head -1)"
                         echo "OS : $(lsb_release -ds 2>/dev/null || cat /etc/os-release | head -1)"
