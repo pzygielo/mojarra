@@ -146,11 +146,25 @@ spec:
     - name: jnlp-with-chrome
       image: 'eclipsecbijenkins/basic-ubuntu-chrome:latest'
       tty: true
+      # Run cat under tini as PID 1 so reparented orphans (asadmin client JVMs, surefire/failsafe
+      # helper forks, defunct sh wrappers) get reaped instead of accumulating as zombies. Without
+      # this, a long TCK reactor run hits the pod's cgroup pids.max (2048 on Eclipse Jiro) after
+      # ~17 modules and surefire's next fork fails with "unable to create native thread". -s puts
+      # tini in subreaper mode so it also reaps grandchildren reparented to it.
       command:
+        - /usr/bin/tini
+        - -s
+        - --
         - cat
       env:
         - name: HOME
           value: /home/jenkins
+        # The agent image sets JAVA_TOOL_OPTIONS globally with OpenJ9-only flags
+        # (PortableSharedCache, Xshareclasses, IdleTuningGcOnIdle). On a Temurin JDK these are
+        # inert thanks to -XX:+IgnoreUnrecognizedVMOptions but they pollute every "java -version"
+        # line and make CI logs confusing. Empty it for the whole pod.
+        - name: JAVA_TOOL_OPTIONS
+          value: ""
       resources:
         limits:
           memory: 8Gi
