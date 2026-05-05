@@ -466,16 +466,26 @@ spec:
                         echo "[cred-check] Sonatype Central Portal: <server id=central> missing in settings.xml" >&2
                         exit 1
                     fi
+                    # Endpoint chosen because it returns 200 with `{"published":...}` for any
+                    # token-authenticated request (regardless of whether the queried artifact
+                    # exists), and 401 for unauthenticated. namespace/name/version are placeholders
+                    # — we only care about the HTTP status code, not the body.
                     CODE=$(curl -sS -o /dev/null -w '%{http_code}' \\
                         -u "${CENTRAL_USER}:${CENTRAL_PASS}" \\
-                        https://central.sonatype.com/api/v1/publisher/deployments) || {
-                        echo "[cred-check] Sonatype Central Portal: curl failed (network or DNS issue)" >&2
+                        'https://central.sonatype.com/api/v1/publisher/published?namespace=org.glassfish&name=jakarta.faces&version=0.0.0') || {
+                        echo "[cred-check] Sonatype Central Portal: ERROR: curl failed (network or DNS)" >&2
                         exit 1
                     }
+                    # 2xx = creds are good; 401/403 = creds are bad; 5xx = real Portal outage,
+                    # warn-only so a transient blip doesn't block a release. Anything else (4xx
+                    # other than auth, unknown codes) is treated as a hard error rather than
+                    # silently passed — a 404 from a wrong URL or a Portal API contract change is
+                    # exactly the kind of thing this probe must surface, not swallow.
                     case "${CODE}" in
                         2*)      echo "[cred-check] Sonatype Central Portal: ok (${CODE})" ;;
-                        401|403) echo "[cred-check] Sonatype Central Portal: BAD CREDS (${CODE})" >&2; exit 1 ;;
-                        *)       echo "[cred-check] Sonatype Central Portal: non-2xx ${CODE} (treating as transient outage)" >&2 ;;
+                        5*)      echo "[cred-check] Sonatype Central Portal: WARNING: transient ${CODE}, treating as outage" >&2 ;;
+                        401|403) echo "[cred-check] Sonatype Central Portal: ERROR: bad creds (${CODE})" >&2; exit 1 ;;
+                        *)       echo "[cred-check] Sonatype Central Portal: ERROR: unexpected ${CODE}" >&2; exit 1 ;;
                     esac
                 '''
                 // GitHub SSH push: --dry-run performs the full receive-pack handshake (incl. the
