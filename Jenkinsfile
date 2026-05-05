@@ -427,17 +427,24 @@ spec:
                 // Sonatype Central Portal creds live in the mounted ~/.m2/settings.xml as
                 // <server id="central">, with the password possibly encrypted via {...} +
                 // settings-security.xml (see m2-secret-dir layout). help:effective-settings with
-                // showPasswords=true emits the SecDispatcher-decrypted form; xmllint extracts the
-                // central entry. The temp file is mode 600 + trap-deleted so the cleartext
-                // password never survives the step. Stdout is silenced so it never hits the log.
+                // showPasswords=true emits the SecDispatcher-decrypted form; awk extracts the
+                // central entry. (xmllint is not on the basic-ubuntu-chrome agent image; awk is.)
+                // The temp file is mode 600 + trap-deleted so the cleartext password never
+                // survives the step. Stdout is silenced so it never hits the log.
                 sh '''#!/bin/bash -e
                     EFF=$(mktemp); chmod 600 "${EFF}"
                     trap 'rm -f "${EFF}"' EXIT
                     mvn -q -B ${HELP_PLUGIN}:effective-settings -DshowPasswords=true -Doutput="${EFF}" >/dev/null
-                    XP_USER='string(//*[local-name()="server"][*[local-name()="id"]="central"]/*[local-name()="username"])'
-                    XP_PASS='string(//*[local-name()="server"][*[local-name()="id"]="central"]/*[local-name()="password"])'
-                    CENTRAL_USER=$(xmllint --xpath "${XP_USER}" "${EFF}")
-                    CENTRAL_PASS=$(xmllint --xpath "${XP_PASS}" "${EFF}")
+                    # awk emits username on line 1, password on line 2 for the matching server.
+                    SERVER_INFO=$(awk -v target=central '
+                        /<server>/                  { id=""; user=""; pass=""; inside=1; next }
+                        /<\\/server>/               { if (inside && id==target) { print user; print pass; exit } inside=0; next }
+                        inside && /<id>/            { sub(/.*<id>/,""); sub(/<\\/id>.*/,""); id=$0 }
+                        inside && /<username>/      { sub(/.*<username>/,""); sub(/<\\/username>.*/,""); user=$0 }
+                        inside && /<password>/      { sub(/.*<password>/,""); sub(/<\\/password>.*/,""); pass=$0 }
+                    ' "${EFF}")
+                    CENTRAL_USER=$(printf '%s\\n' "${SERVER_INFO}" | sed -n 1p)
+                    CENTRAL_PASS=$(printf '%s\\n' "${SERVER_INFO}" | sed -n 2p)
                     if [ -z "${CENTRAL_USER}" ] || [ -z "${CENTRAL_PASS}" ]; then
                         echo "[cred-check] Sonatype Central Portal: <server id=central> missing in settings.xml" >&2
                         exit 1
