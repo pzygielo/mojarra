@@ -245,7 +245,7 @@ spec:
                description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release) or when MILESTONE_VERSION is set.')
         booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
         booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: 'Requires RUN_TCK. 4.x only. Skip the old-tck JavaTest modules (excluded from the reactor entirely via -pl); cuts nearly 3 hours off the TCK run. No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected by this flag.')
-        booleanParam(name: 'TEST_RUN',    defaultValue: false, description: 'Requires RUN_TCK and DRY_RUN. Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked).')
+        booleanParam(name: 'SMOKE_TEST',  defaultValue: false, description: 'Requires RUN_TCK and DRY_RUN. Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked).')
         booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push.')
         booleanParam(name: 'SKIP_DEPLOY', defaultValue: false, description: 'Requires DRY_RUN unchecked. Skip the Maven Central deploy stage only (still pushes branch/tag and creates the GitHub release). Use for resuming a previous run after Maven Central already published, or for pipeline-debug runs that exercise Publish to GitHub without re-deploying.')
     }
@@ -281,8 +281,8 @@ spec:
 
                     // Reject inert checkbox combinations up front rather than silently ignoring them.
                     if (params.SKIP_OLD_TCK && !params.RUN_TCK) error "SKIP_OLD_TCK requires RUN_TCK."
-                    if (params.TEST_RUN     && !params.RUN_TCK) error "TEST_RUN requires RUN_TCK."
-                    if (params.TEST_RUN     && !params.DRY_RUN) error "TEST_RUN requires DRY_RUN (filtered run is not TCK-conformant and must never be published)."
+                    if (params.SMOKE_TEST   && !params.RUN_TCK) error "SMOKE_TEST requires RUN_TCK."
+                    if (params.SMOKE_TEST   && !params.DRY_RUN) error "SMOKE_TEST requires DRY_RUN (filtered run is not TCK-conformant and must never be published)."
                     if (params.SKIP_DEPLOY  &&  params.DRY_RUN) error "SKIP_DEPLOY requires DRY_RUN unchecked (DRY_RUN already skips deploy)."
 
                     env.RESOLVED_JDK         = params.JDK?.trim()         ?: cfg.jdk
@@ -376,16 +376,16 @@ spec:
                     // is not affected.
                     env.SKIP_OLD_TCK_FLAG = params.SKIP_OLD_TCK ? '-pl -:old-faces-tck-parent,-:old-tck-build,-:old-tck-run' : ''
 
-                    // TEST_RUN: smoke-run for iterating on the pipeline itself. Filters failsafe
-                    // ITs to three representative classes and old-tck JavaTest to one small path,
-                    // dropping a 30+ min cycle to ~3 min (or ~12 min with old-tck enabled).
-                    // Hard-gated on DRY_RUN: the filtered run is not TCK-conformant, and must
-                    // never produce a published release.
+                    // SMOKE_TEST: smoke-test subset for iterating on the pipeline itself. Filters
+                    // failsafe ITs to three representative classes and old-tck JavaTest to one
+                    // small path, dropping a 30+ min cycle to ~3 min (or ~12 min with old-tck
+                    // enabled). Hard-gated on DRY_RUN: the filtered run is not TCK-conformant,
+                    // and must never produce a published release.
                     //   -Dit.test=...   : last `-Dit.test` on the cli wins, overriding the
                     //                     CSP-backport pattern in TCK_IT_TEST_FLAGS.
                     //   -Drun.test=...  : antrun config in old-tck/run/pom.xml flips to
                     //                     `ant runclient -Dmultiple.tests=${run.test}` when set.
-                    env.TEST_RUN_FLAGS = (params.TEST_RUN && params.DRY_RUN) \
+                    env.SMOKE_TEST_FLAGS = (params.SMOKE_TEST && params.DRY_RUN) \
                         ? "-Dit.test=**/JSFSigTestIT.java,**/ChildCountTestIT.java,**/AjaxTestsIT.java -Dfailsafe.failIfNoSpecifiedTests=false -Drun.test=com/sun/ts/tests/jsf/api/jakarta_faces/application/facesmessage" \
                         : ''
 
@@ -440,12 +440,12 @@ spec:
                         : "TCK skipped"
                     // old-TCK exists only on 4.x; on 5.0+ the module is gone so the flag is a no-op.
                     def skipOldTckLabel = (params.RELEASE_LINE.startsWith('4.') && params.RUN_TCK && params.SKIP_OLD_TCK) ? ', old-TCK skipped' : ''
-                    def testRunLabel = (params.RUN_TCK && params.TEST_RUN && params.DRY_RUN) ? ', test-run' : ''
+                    def smokeTestLabel = (params.RUN_TCK && params.SMOKE_TEST && params.DRY_RUN) ? ', smoke-test' : ''
                     def milestoneLabel = (env.IS_MILESTONE == 'true') ? ', milestone' : ''
                     def dryRunLabel = params.DRY_RUN ? ', dry-run' : ''
                     currentBuild.description = "${params.RELEASE_LINE} → ${env.RELEASE_VERSION}" +
                         ((env.SHOULD_BUILD_API == 'true') ? " + API ${env.RESOLVED_API_VERSION}" : ' (impl-only)') +
-                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${skipOldTckLabel}${testRunLabel}${milestoneLabel}${dryRunLabel})"
+                        " (${jdkLabel}, GF ${env.RESOLVED_GF_VERSION}, ${tckLabel}${skipOldTckLabel}${smokeTestLabel}${milestoneLabel}${dryRunLabel})"
                     echo renderBanner(buildBannerLines(params, env, cfg))
                 }
                 // Validate every credential the publish path will need, even on DRY_RUN, so a
@@ -742,7 +742,7 @@ spec:
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${IMPL_API_DEP_VERSION}" \\
                         ${TCK_IT_TEST_FLAGS} \\
-                        ${TEST_RUN_FLAGS} \\
+                        ${SMOKE_TEST_FLAGS} \\
                         | tee "${WORKSPACE}/run.log"
 
                     cd "${WORKSPACE}"
@@ -1072,7 +1072,7 @@ def cspBackportItTestFlags(String version) {
 
 // Compose the human-readable banner lines printed at the end of the Prepare stage. Always-on lines
 // describe the artifacts being released and the build/test environment; conditional lines call out
-// active toggles (DRY_RUN, TEST_RUN, SKIP_OLD_TCK, SKIP_DEPLOY, RUN_TCK off).
+// active toggles (DRY_RUN, SMOKE_TEST, SKIP_OLD_TCK, SKIP_DEPLOY, RUN_TCK off).
 def buildBannerLines(params, env, cfg) {
     def lines = []
     if (env.IS_MILESTONE == 'true') {
@@ -1094,7 +1094,7 @@ def buildBannerLines(params, env, cfg) {
     lines << "${jdkLabel}, GlassFish ${env.RESOLVED_GF_VERSION}${tckBannerLabel}"
     if (!params.RUN_TCK)    lines << "- RUN_TCK off: TCK skipped entirely"
     if (params.SKIP_OLD_TCK && params.RELEASE_LINE.startsWith('4.')) lines << "- SKIP_OLD_TCK: old-tck JavaTest modules excluded from reactor"
-    if (params.TEST_RUN)    lines << "- TEST_RUN: smoke-test subset only (NOT TCK-conformant)"
+    if (params.SMOKE_TEST)  lines << "- SMOKE_TEST: smoke-test subset only (NOT TCK-conformant)"
     if (params.DRY_RUN)     lines << "- DRY_RUN: skips Maven Central deploy and GitHub push"
     if (params.SKIP_DEPLOY) lines << "- SKIP_DEPLOY: skips deploy but still pushes branch/tag and creates GitHub release"
     return lines
