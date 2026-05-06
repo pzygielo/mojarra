@@ -734,8 +734,19 @@ spec:
                     # TCK ships gf-pool (5.0+) — set per-line in BRANCH_CONFIG.threadCount. 4.x runs
                     # at 1 because their TCK starts a single managed GlassFish per module that can't
                     # be shared across parallel module builds.
+                    #
+                    # -Dgf.pool.size=${TCK_THREAD_COUNT}: pre-provision the pool to match -T so the
+                    # first heavy module doesn't pay the one-slot-at-a-time grow latency (~30s of
+                    # api-application's wall on cold builds).
+                    #
+                    # `env -u JAVA_TOOL_OPTIONS` strips the (intentionally empty) var inherited from
+                    # the pod env so child JVMs don't print the noisy "Picked up JAVA_TOOL_OPTIONS:"
+                    # banner on every fork — at -T 4 across 100+ surefire-fork JVMs that's thousands
+                    # of duplicate lines clogging run.log.
+                    env -u JAVA_TOOL_OPTIONS \\
                     mvn ${MVN_EXTRA} -T ${TCK_THREAD_COUNT} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
+                        -Dgf.pool.size=${TCK_THREAD_COUNT} \\
                         -Dwdm.cachePath=/home/jenkins/agent/caches/selenium \\
                         -DskipAssembly=true -Pstaging \\
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
