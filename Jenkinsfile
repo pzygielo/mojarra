@@ -151,15 +151,10 @@ spec:
     - name: jnlp-with-chrome
       image: 'eclipsecbijenkins/basic-ubuntu-chrome:latest'
       tty: true
-      # Run a tiny bash reaper as PID 1 so reparented orphans (asadmin client JVMs,
-      # surefire/failsafe helper forks, defunct sh wrappers) get reaped instead of accumulating as
-      # zombies. Without this, a long TCK reactor run hits the pod's cgroup pids.max (2048 on
-      # Eclipse Jiro) after ~17 modules and surefire's next fork fails with "unable to create
-      # native thread". The basic-ubuntu-chrome image doesn't ship tini, so this is the
-      # zero-dependency equivalent: bash as PID 1 receives SIGCHLD for any reparented child, and
-      # `wait -n` reaps the next exited one each iteration; the sleep keeps the loop alive when
-      # idle. The outer `while :;` ensures the loop survives if `wait -n` returns no-children
-      # (exit 127) early in pod startup before any forks have happened.
+      # Bash reaper as PID 1 so reparented orphans (asadmin clients, surefire forks, sh wrappers)
+      # don't accumulate as zombies and exhaust the pod's pids cgroup over a long TCK run. The
+      # image doesn't ship tini; bash + `wait -n` is the zero-dependency equivalent. The outer
+      # `while :;` keeps the loop alive when `wait -n` returns 127 (no children) at startup.
       command:
         - /bin/bash
         - -c
@@ -173,12 +168,9 @@ spec:
         # line and make CI logs confusing. Empty it for the whole pod.
         - name: JAVA_TOOL_OPTIONS
           value: ""
-      # Capped at the Eclipse Jiro namespace quota: max 8Gi/2 CPU per container, 8704Mi/2300m
-      # per pod (the rest is consumed by the jnlp sidecar). Going higher would require a
-      # helpdesk request to expand the quota. 5.0 still benefits from -T 4 here even though CPU
-      # oversubscribes 2:1, because the gf-pool slot lifecycle is I/O-bound (GlassFish startup,
-      # WAR upload, browser navigation), not CPU-bound — wall-clock speedup is roughly 2× rather
-      # than the 4× the thread count would suggest.
+      # Capped at the Eclipse Jiro namespace quota (8Gi/2 CPU per container; pod total 8704Mi/2300m
+      # with the rest going to the jnlp sidecar). Raising it requires a helpdesk request. 5.0's
+      # -T 4 still helps despite 2:1 CPU oversubscription because gf-pool slots are I/O-bound.
       resources:
         limits:
           memory: 8Gi
@@ -227,26 +219,18 @@ spec:
     }
 
     parameters {
-        choice(name: 'RELEASE_LINE',    choices: ['4.0', '4.1', '5.0'],
-               description: 'Release line to cut.')
-        string(name: 'MILESTONE_VERSION', defaultValue: '',
-               description: 'Leave blank for a GA release; otherwise the suffix for a milestone/RC release. Must match ^(M|RC)[0-9]+$ (e.g. M1, M2, RC1). When set, the release version is auto-derived as <pom-base-version>-<MILESTONE_VERSION> (e.g. 5.0.0-M2), tagged exactly that (no -RELEASE suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.')
-        choice(name: 'JDK',             choices: JDK_VERSION_CHOICES,
-               description: 'Leave blank to auto-infer from RELEASE_LINE (11 for 4.0, 17 for 4.1 and 5.0). This is the JDK used to run the build & install.')
-        choice(name: 'TCK_JDK',         choices: JDK_VERSION_CHOICES,
-               description: 'Leave blank to auto-infer from RELEASE_LINE (11 for 4.0, 21 for 4.1 and 5.0). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
-        string(name: 'TCK_VERSION',     defaultValue: '',
-               description: 'Leave blank to auto-infer from RELEASE_LINE. A released value (e.g. 4.0.3) downloads the published TCK zip from download.eclipse.org; a -SNAPSHOT value (e.g. 5.0.0-SNAPSHOT) builds the TCK from the faces/tck submodule directory instead.')
-        string(name: 'GF_VERSION',      defaultValue: '',
-               description: 'Leave blank to auto-infer from RELEASE_LINE. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
-        string(name: 'GF_BUNDLE_URL',   defaultValue: '',
-               description: 'Leave blank to resolve GlassFish from Maven Central via GF_VERSION; otherwise an explicit zip URL override (GF_VERSION must match the artifact version inside the zip).')
-        string(name: 'API_RELEASE_VERSION', defaultValue: '',
-               description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release) or when MILESTONE_VERSION is set.')
-        booleanParam(name: 'RUN_TCK',     defaultValue: true,  description: 'Run the Faces TCK after build.')
+        choice(name: 'RELEASE_LINE', choices: ['4.0', '4.1', '5.0'], description: 'Release line to cut.')
+        string(name: 'MILESTONE_VERSION' , defaultValue: '', description: 'Leave blank for a GA release; otherwise the suffix for a milestone/RC release. Must match ^(M|RC)[0-9]+$ (e.g. M1, M2, RC1). When set, the release version is auto-derived as <pom-base-version>-<MILESTONE_VERSION> (e.g. 5.0.0-M2), tagged exactly that (no -RELEASE suffix), and the source branch is left untouched: PR-merge, milestone management, GitHub release creation, and snapshot bump are all skipped.')
+        choice(name: 'JDK', choices: JDK_VERSION_CHOICES, description: 'Leave blank to auto-infer from RELEASE_LINE (11 for 4.0, 17 for 4.1 and 5.0). This is the JDK used to run the build & install.')
+        choice(name: 'TCK_JDK', choices: JDK_VERSION_CHOICES, description: 'Leave blank to auto-infer from RELEASE_LINE (11 for 4.0, 21 for 4.1 and 5.0). This is the JDK used to run the TCK (the GlassFish container may need a newer JDK than the spec).')
+        string(name: 'TCK_VERSION', defaultValue: '', description: 'Leave blank to auto-infer from RELEASE_LINE. A released value (e.g. 4.0.3) downloads the published TCK zip from download.eclipse.org; a -SNAPSHOT value (e.g. 5.0.0-SNAPSHOT) builds the TCK from the faces/tck submodule directory instead.')
+        string(name: 'GF_VERSION', defaultValue: '', description: 'Leave blank to auto-infer from RELEASE_LINE. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
+        string(name: 'GF_BUNDLE_URL', defaultValue: '', description: 'Leave blank to resolve GlassFish from Maven Central via GF_VERSION; otherwise an explicit zip URL override (GF_VERSION must match the artifact version inside the zip).')
+        string(name: 'API_RELEASE_VERSION', defaultValue: '', description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release) or when MILESTONE_VERSION is set.')
+        booleanParam(name: 'RUN_TCK', defaultValue: true, description: 'Run the Faces TCK after build.')
         booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: 'Requires RUN_TCK. 4.x only. Skip the old-tck JavaTest modules (excluded from the reactor entirely via -pl); cuts nearly 3 hours off the TCK run. No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected by this flag.')
-        booleanParam(name: 'SMOKE_TEST',  defaultValue: false, description: 'Requires RUN_TCK and DRY_RUN. Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked).')
-        booleanParam(name: 'DRY_RUN',     defaultValue: true,  description: 'Skip Maven Central deploy and GitHub push.')
+        booleanParam(name: 'SMOKE_TEST', defaultValue: false, description: 'Requires RUN_TCK and DRY_RUN. Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked).')
+        booleanParam(name: 'DRY_RUN', defaultValue: true, description: 'Skip Maven Central deploy and GitHub push.')
         booleanParam(name: 'SKIP_DEPLOY', defaultValue: false, description: 'Requires DRY_RUN unchecked. Skip the Maven Central deploy stage only (still pushes branch/tag and creates the GitHub release). Use for resuming a previous run after Maven Central already published, or for pipeline-debug runs that exercise Publish to GitHub without re-deploying.')
     }
 
@@ -449,57 +433,41 @@ spec:
                     echo renderBanner(buildBannerLines(params, env, cfg))
                 }
                 // Validate every credential the publish path will need, even on DRY_RUN, so a
-                // revoked/expired/misconfigured credential fails the build in minute zero rather
-                // than after a multi-hour TCK run. Runs unconditionally — milestone publishes also
-                // need Maven Central + GitHub push + gh token, so there's no reason to skip.
-                // GPG is not pinged here because Build & install already signs sources/javadoc and
-                // would fail on a bad keyring within minutes.
-                //
-                // Sonatype Central Portal creds live in the mounted ~/.m2/settings.xml as
-                // <server id="central">, with the password possibly encrypted via {...} +
-                // settings-security.xml (see m2-secret-dir layout). help:effective-settings with
-                // showPasswords=true emits the SecDispatcher-decrypted form; awk extracts the
-                // central entry. (xmllint is not on the basic-ubuntu-chrome agent image; awk is.)
-                // The temp file is mode 600 + trap-deleted so the cleartext password never
-                // survives the step. Stdout is silenced so it never hits the log.
+                // revoked/expired credential fails in minute zero rather than after a multi-hour
+                // TCK run. GPG is not pinged here because Build & install signs sources/javadoc
+                // and would fail on a bad keyring within minutes. Maven offers no native dryRun
+                // for Central deploys; the curl probe below is the only zero-cost auth check.
                 sh '''#!/bin/bash -e
+                    # Decrypt <server id=central> creds from the mounted settings.xml via
+                    # SecDispatcher. Temp file is mode 600 + trap-deleted so the cleartext never
+                    # survives the step; stdout is silenced so it never hits the log.
                     EFF=$(mktemp); chmod 600 "${EFF}"
                     trap 'rm -f "${EFF}"' EXIT
                     mvn -q -B ${HELP_PLUGIN}:effective-settings -DshowPasswords=true -Doutput="${EFF}" >/dev/null
-                    # awk emits username on line 1, password on line 2 for the matching server.
-                    SERVER_INFO=$(awk -v target=central '
-                        /<server>/                  { id=""; user=""; pass=""; inside=1; next }
-                        /<\\/server>/               { if (inside && id==target) { print user; print pass; exit } inside=0; next }
-                        inside && /<id>/            { sub(/.*<id>/,""); sub(/<\\/id>.*/,""); id=$0 }
-                        inside && /<username>/      { sub(/.*<username>/,""); sub(/<\\/username>.*/,""); user=$0 }
-                        inside && /<password>/      { sub(/.*<password>/,""); sub(/<\\/password>.*/,""); pass=$0 }
-                    ' "${EFF}")
-                    CENTRAL_USER=$(printf '%s\\n' "${SERVER_INFO}" | sed -n 1p)
-                    CENTRAL_PASS=$(printf '%s\\n' "${SERVER_INFO}" | sed -n 2p)
+                    # Split on opening <server> tags, keep the block whose id is "central", then
+                    # pluck the inner text of <username>/<password>. \\K resets the match start so
+                    # only the inner text is captured (avoids greedy-.* corner cases).
+                    BLOCK=$(awk 'BEGIN{RS="<server>"} /<id>central<\\/id>/' "${EFF}")
+                    CENTRAL_USER=$(echo "${BLOCK}" | grep -oP '<username>\\K[^<]*' | head -1)
+                    CENTRAL_PASS=$(echo "${BLOCK}" | grep -oP '<password>\\K[^<]*' | head -1)
                     if [ -z "${CENTRAL_USER}" ] || [ -z "${CENTRAL_PASS}" ]; then
                         echo "[cred-check] Sonatype Central Portal: <server id=central> missing in settings.xml" >&2
                         exit 1
                     fi
-                    # The Sonatype Central Portal Publisher API doesn't expose a clean "ping/auth"
-                    # endpoint. Empirically (run #70), GET on /api/v1/publisher/deployments with
-                    # valid creds returns 404 — meaning Sonatype's API gateway validates auth
-                    # *before* routing, so 404 here proves the credentials were accepted. With
-                    # invalid creds the same request returns 401. We exploit that contract: 401/403
-                    # is the only definitive bad-creds signal; 404 (auth-passed-but-no-route) and
-                    # any 2xx are treated as success; 5xx is a transient Portal outage (warn-only);
-                    # anything else surfaces as an unexpected-state error so a contract change at
-                    # Sonatype's gateway is loud rather than silently swallowed.
+                    # GET /api/v1/publisher/deployments returns 404 on valid creds (Sonatype's
+                    # gateway routes only after auth) and 401 on invalid — the only zero-cost
+                    # auth probe the Portal exposes. 5xx is a transient outage (warn-only);
+                    # anything else surfaces as contract drift rather than silent success.
                     CODE=$(curl -sS -o /dev/null -w '%{http_code}' \\
                         -u "${CENTRAL_USER}:${CENTRAL_PASS}" \\
                         https://central.sonatype.com/api/v1/publisher/deployments) || {
-                        echo "[cred-check] Sonatype Central Portal: ERROR: curl failed (network or DNS)" >&2
-                        exit 1
+                        echo "[cred-check] Sonatype Central Portal: curl failed (network/DNS)" >&2; exit 1
                     }
                     case "${CODE}" in
-                        2*|404)  echo "[cred-check] Sonatype Central Portal: ok (${CODE}, auth accepted)" ;;
-                        5*)      echo "[cred-check] Sonatype Central Portal: WARNING: transient ${CODE}, treating as outage" >&2 ;;
-                        401|403) echo "[cred-check] Sonatype Central Portal: ERROR: bad creds (${CODE})" >&2; exit 1 ;;
-                        *)       echo "[cred-check] Sonatype Central Portal: ERROR: unexpected ${CODE}" >&2; exit 1 ;;
+                        2*|404)  echo "[cred-check] Sonatype Central Portal: ok (${CODE})" ;;
+                        5*)      echo "[cred-check] Sonatype Central Portal: WARNING transient ${CODE}" >&2 ;;
+                        401|403) echo "[cred-check] Sonatype Central Portal: bad creds (${CODE})" >&2; exit 1 ;;
+                        *)       echo "[cred-check] Sonatype Central Portal: unexpected ${CODE}" >&2; exit 1 ;;
                     esac
                 '''
                 // GitHub SSH push: --dry-run performs the full receive-pack handshake (incl. the
@@ -627,59 +595,6 @@ spec:
                     export JAVA_HOME="${TCK_JAVA_HOME}"
                     export PATH="${JAVA_HOME}/bin:${PATH}"
 
-                    # ---- Diagnostic probes for the "unable to create native thread" investigation.
-                    # Goal: prove or disprove that GlassFish JVMs leak across module boundaries and
-                    # exhaust the pod's pids cgroup. Captures one-shot resource caps + toolchain
-                    # info up front, samples process/thread state every 30s during the reactor, and
-                    # dumps a full thread listing on failure. All output archived as artifacts.
-                    {
-                        echo "=== cgroup pids ==="
-                        cat /sys/fs/cgroup/pids.max         2>/dev/null || true
-                        cat /sys/fs/cgroup/pids/pids.max    2>/dev/null || true
-                        cat /sys/fs/cgroup/pids.current     2>/dev/null || true
-                        cat /sys/fs/cgroup/pids/pids.current 2>/dev/null || true
-                        echo "=== kernel/ulimit ==="
-                        cat /proc/sys/kernel/threads-max 2>/dev/null || true
-                        ulimit -u 2>/dev/null || true
-                        ulimit -a 2>/dev/null || true
-                        echo "=== toolchain ==="
-                        which java
-                        readlink -f "$(which java)"
-                        java -version 2>&1
-                        env | grep -iE 'java|jdk' | sort
-                        echo "=== chrome / selenium env ==="
-                        google-chrome --version 2>/dev/null || true
-                        which chromedriver 2>/dev/null || true
-                        chromedriver --version 2>/dev/null || true
-                        df -h /dev/shm 2>/dev/null || true
-                        ls -la /dev/shm 2>/dev/null | head -20 || true
-                        ls -la /home/jenkins/agent/caches/selenium 2>/dev/null | head -20 || true
-                    } > "${WORKSPACE}/tck-env.log" 2>&1 || true
-
-                    # Periodic snapshot loop. nlwp is the per-process thread count; sorting desc
-                    # surfaces fat JVMs first. We tag each sample with an iso8601 timestamp so it
-                    # can be correlated with the Maven reactor log.
-                    (
-                        while sleep 30; do
-                            echo "=== $(date -Is) ==="
-                            echo -n "pids.current: "
-                            cat /sys/fs/cgroup/pids.current 2>/dev/null \\
-                                || cat /sys/fs/cgroup/pids/pids.current 2>/dev/null \\
-                                || echo "?"
-                            echo "java procs:        $(pgrep -c java 2>/dev/null || echo 0)"
-                            echo "asadmin procs:     $(pgrep -c -f asadmin 2>/dev/null || echo 0)"
-                            echo "glassfish ASMain:  $(pgrep -c -f 'glassfish.*ASMain' 2>/dev/null || echo 0)"
-                            echo "chrome procs:      $(pgrep -c chrome 2>/dev/null || echo 0)"
-                            echo "chromedriver:      $(pgrep -c chromedriver 2>/dev/null || echo 0)"
-                            echo "/dev/shm:          $(df -h /dev/shm 2>/dev/null | awk 'NR==2 {print $3"/"$2" ("$5")"}')"
-                            echo "/dev/shm files:    $(ls /dev/shm 2>/dev/null | wc -l)"
-                            ps -eo pid,ppid,nlwp,rss,etimes,cmd --sort=-nlwp 2>/dev/null | head -25
-                        done
-                    ) > "${WORKSPACE}/tck-procs.log" 2>&1 &
-                    PROBE_PID=$!
-                    # Stop the probe loop on any exit path so it doesn't outlive the step.
-                    trap 'kill ${PROBE_PID} 2>/dev/null || true' EXIT
-
                     if [[ "${RESOLVED_TCK_VERSION}" == *-SNAPSHOT ]]; then
                         # -SNAPSHOT: build the TCK directly from the faces submodule (already checked
                         # out at faces/) instead of downloading a not-yet-published zip. Used while a
@@ -726,23 +641,14 @@ spec:
                     # which downloaded zip's sha256) was actually built against.
                     echo "[tck-bundle] ${TCK_SOURCE}" | tee -a "${WORKSPACE}/run.log"
 
-                    # Failsafe gates on test failures via its own non-zero exit. Per-module
-                    # failsafe-summary.xml files are then aggregated below to render summary.txt
-                    # for the release archive.
+                    # Failsafe gates on test failures via its own non-zero exit; per-module
+                    # failsafe-summary.xml files are aggregated below into summary.txt.
                     cd "${TCK_BUNDLE_DIR}/tck"
-                    # -T ${TCK_THREAD_COUNT}: parallel reactor build. >1 only on release lines whose
-                    # TCK ships gf-pool (5.0+) — set per-line in BRANCH_CONFIG.threadCount. 4.x runs
-                    # at 1 because their TCK starts a single managed GlassFish per module that can't
-                    # be shared across parallel module builds.
-                    #
-                    # -Dgf.pool.size=${TCK_THREAD_COUNT}: pre-provision the pool to match -T so the
-                    # first heavy module doesn't pay the one-slot-at-a-time grow latency (~30s of
-                    # api-application's wall on cold builds).
-                    #
-                    # `env -u JAVA_TOOL_OPTIONS` strips the (intentionally empty) var inherited from
-                    # the pod env so child JVMs don't print the noisy "Picked up JAVA_TOOL_OPTIONS:"
-                    # banner on every fork — at -T 4 across 100+ surefire-fork JVMs that's thousands
-                    # of duplicate lines clogging run.log.
+                    # -T / -Dgf.pool.size: parallel reactor with the gf-pool pre-provisioned to
+                    # match. Set per-line in BRANCH_CONFIG.threadCount (>1 only for TCKs with
+                    # gf-pool support; 4.x stays at 1 — single managed GlassFish per module).
+                    # env -u JAVA_TOOL_OPTIONS: strip the (intentionally empty) inherited var so
+                    # child JVMs don't print the "Picked up JAVA_TOOL_OPTIONS:" banner on each fork.
                     env -u JAVA_TOOL_OPTIONS \\
                     mvn ${MVN_EXTRA} -T ${TCK_THREAD_COUNT} clean install \\
                         ${SKIP_OLD_TCK_FLAG} -Dtest.selenium=${SELENIUM_ENABLED} \\
@@ -835,27 +741,7 @@ spec:
             }
             post {
                 always {
-                    // Snapshot full thread/process state at TCK exit (pass or fail) so we can
-                    // diff against tck-env.log (start) + tck-procs.log (samples) and confirm
-                    // whether GlassFish JVMs leak across modules. Best-effort — the surrounding
-                    // shell may already be torn down.
-                    sh '''#!/bin/bash
-                        {
-                            echo "=== final $(date -Is) ==="
-                            echo -n "pids.current: "
-                            cat /sys/fs/cgroup/pids.current 2>/dev/null \\
-                                || cat /sys/fs/cgroup/pids/pids.current 2>/dev/null \\
-                                || echo "?"
-                            echo "=== pgrep -af java ==="
-                            pgrep -af java 2>/dev/null || true
-                            echo "=== /dev/shm at exit ==="
-                            df -h /dev/shm 2>/dev/null || true
-                            ls -la /dev/shm 2>/dev/null || true
-                            echo "=== ps -eLf (all threads) ==="
-                            ps -eLf 2>/dev/null || true
-                        } > "${WORKSPACE}/tck-threads-final.log" 2>&1 || true
-                    '''
-                    archiveArtifacts artifacts: 'run.log, summary.txt, tck-env.log, tck-procs.log, tck-threads-final.log',
+                    archiveArtifacts artifacts: 'run.log, summary.txt',
                                      allowEmptyArchive: true, fingerprint: true
                 }
             }
