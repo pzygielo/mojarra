@@ -227,6 +227,7 @@ spec:
         string(name: 'GF_VERSION', defaultValue: '', description: 'Leave blank to auto-infer from RELEASE_LINE. When using GF_BUNDLE_URL, set this to match the artifact version inside the zip (e.g. 8.0.0-X).')
         string(name: 'GF_BUNDLE_URL', defaultValue: '', description: 'Leave blank to resolve GlassFish from Maven Central via GF_VERSION; otherwise an explicit zip URL override (GF_VERSION must match the artifact version inside the zip).')
         string(name: 'API_RELEASE_VERSION', defaultValue: '', description: '5.0+ only. Leave blank to auto-infer from faces/api/pom.xml. Ignored when impl/pom.xml pins jakarta.faces-api to a GA version (impl-only release) or when MILESTONE_VERSION is set.')
+        choice(name: 'THREAD_COUNT', choices: ['', '1', '2', '3', '4', '5', '6', '7', '8'], description: '5.0+ only. Leave blank to auto-infer from RELEASE_LINE (1 for 4.x, 2 for 5.0). Maven `-T` value and gf.pool.size for the TCK reactor. Values >1 only work on TCKs that ship gf-pool (5.0+); selecting one on 4.x errors out.')
         booleanParam(name: 'RUN_TCK', defaultValue: true, description: 'Run the Faces TCK after build.')
         booleanParam(name: 'SKIP_OLD_TCK', defaultValue: false, description: 'Requires RUN_TCK. 4.x only. Skip the old-tck JavaTest modules (excluded from the reactor entirely via -pl); cuts nearly 3 hours off the TCK run. No-op on 5.0+ where these modules no longer exist. The old-tck-selenium failsafe-driven modules are unaffected by this flag.')
         booleanParam(name: 'SMOKE_TEST', defaultValue: false, description: 'Requires RUN_TCK and DRY_RUN. Filter the TCK to a tiny representative subset for fast iteration on the pipeline itself (one failsafe IT + one sigtest IT + one old-tck-selenium IT, plus one old-tck JavaTest path when SKIP_OLD_TCK is unchecked).')
@@ -268,13 +269,14 @@ spec:
                     if (params.SMOKE_TEST   && !params.RUN_TCK) error "SMOKE_TEST requires RUN_TCK."
                     if (params.SMOKE_TEST   && !params.DRY_RUN) error "SMOKE_TEST requires DRY_RUN (filtered run is not TCK-conformant and must never be published)."
                     if (params.SKIP_DEPLOY  &&  params.DRY_RUN) error "SKIP_DEPLOY requires DRY_RUN unchecked (DRY_RUN already skips deploy)."
+                    if (params.THREAD_COUNT?.trim() && cfg.threadCount == 1) error "THREAD_COUNT is 5.0+ only (4.x TCKs run a single managed GlassFish per module and cannot parallelize)."
 
                     env.RESOLVED_JDK         = params.JDK?.trim()         ?: cfg.jdk
                     env.RESOLVED_TCK_JDK     = params.TCK_JDK?.trim()     ?: cfg.tckJdk
                     env.RESOLVED_TCK_VERSION = params.TCK_VERSION?.trim() ?: cfg.tckVersion
                     env.RESOLVED_GF_VERSION  = params.GF_VERSION?.trim()  ?: cfg.gfVersion
                     env.SELENIUM_ENABLED     = cfg.seleniumEnabled ? 'true' : 'false'
-                    env.TCK_THREAD_COUNT     = cfg.threadCount.toString()
+                    env.TCK_THREAD_COUNT     = params.THREAD_COUNT?.trim() ?: cfg.threadCount.toString()
                     env.RELEASE_LINE         = params.RELEASE_LINE
                     env.IMPL_BRANCH          = cfg.implBranch
                     env.API_BRANCH           = cfg.apiBranch ?: ''
