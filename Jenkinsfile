@@ -348,13 +348,6 @@ spec:
                         env.RELEASE_BRANCH  = env.RELEASE_VERSION
                     }
 
-                    // Mirror the TCK pom's `compute-csp-backport-flags` script for Mojarra versions
-                    // covered by the CSP backport (#5606): a handful of TCK ITs need to be excluded
-                    // because their inline event handlers no longer hold once mojarra.ael attaches them.
-                    // Pre-setting `it.test` here is also safe against TCK zips that already ship the
-                    // script — its guard is `!containsKey('it.test')`, which we then trigger as a no-op.
-                    env.TCK_IT_TEST_FLAGS = cspBackportItTestFlags(env.RELEASE_VERSION)
-
                     // Skip old-tck by excluding its modules from the reactor entirely (-pl), so
                     // they aren't even parsed/built — faster and cleaner than -Dtck.old.skip=true,
                     // which leaves the modules in the reactor and only short-circuits their
@@ -367,8 +360,6 @@ spec:
                     // small path, dropping a 30+ min cycle to ~3 min (or ~12 min with old-tck
                     // enabled). Hard-gated on DRY_RUN: the filtered run is not TCK-conformant,
                     // and must never produce a published release.
-                    //   -Dit.test=...   : last `-Dit.test` on the cli wins, overriding the
-                    //                     CSP-backport pattern in TCK_IT_TEST_FLAGS.
                     //   -Drun.test=...  : antrun config in old-tck/run/pom.xml flips to
                     //                     `ant runclient -Dmultiple.tests=${run.test}` when set.
                     env.SMOKE_TEST_FLAGS = (params.SMOKE_TEST && params.DRY_RUN) \
@@ -660,7 +651,6 @@ spec:
                         -Dglassfish.version="${RESOLVED_GF_VERSION}" \\
                         -Dmojarra.version="${RELEASE_VERSION}" \\
                         -Dfaces.version="${IMPL_API_DEP_VERSION}" \\
-                        ${TCK_IT_TEST_FLAGS} \\
                         ${SMOKE_TEST_FLAGS} \\
                         | tee "${WORKSPACE}/run.log"
 
@@ -952,21 +942,6 @@ def requireGaVersion(String paramName, String version, String expectedPrefix) {
     if (expectedPrefix != null && !version.startsWith(expectedPrefix + '.')) {
         error "${paramName} '${version}' does not match expected prefix '${expectedPrefix}.'."
     }
-}
-
-// Mirror of the TCK pom's `compute-csp-backport-flags` script (faces/tck/pom.xml, profile
-// glassfish-ci-managed). Returns the `-Dit.test=... -Dfailsafe.failIfNoSpecifiedTests=false`
-// flags when `version` falls in the CSP-backport range (4.0.17+), or "" otherwise.
-def cspBackportItTestFlags(String version) {
-    def m = (version =~ /^(\d+)\.(\d+)\.(\d+)$/)
-    if (!m.matches()) return ''
-    def maj = m[0][1].toInteger()
-    def min = m[0][2].toInteger()
-    def inc = m[0][3].toInteger()
-    if (maj == 4 && min == 0 && inc >= 17) {
-        return '-Dit.test=**/*IT.java,!**/Issue2439IT.java,!**/Issue2674IT.java,!**/Issue4331IT.java,!**/Spec1238IT.java,!**/CommandLinkTestsIT.java -Dfailsafe.failIfNoSpecifiedTests=false'
-    }
-    return ''
 }
 
 // Compose the human-readable banner lines printed at the end of the Prepare stage. Always-on lines
